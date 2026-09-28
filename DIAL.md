@@ -10,6 +10,9 @@ To rename it, change `app_name` in `app/tv/src/main/res/values/stings.xml` and `
 `dial_strings.xml`, then change the banner text in `tools/dial-branding/make_brand.py` and run it
 (see "Branding" below).
 
+There's also a native Mac version in `mac/` (Swift and SwiftUI, Intel Macs on macOS 13 Ventura or
+later). GitHub builds it automatically; see `mac/README.md` for the download link.
+
 ## What's different from upstream
 
 **Sign in on the TV.** Upstream's TV app can only receive an Xtream account pushed from the phone
