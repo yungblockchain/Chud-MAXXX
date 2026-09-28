@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.com.android.application)
     alias(libs.plugins.compose.compiler)
@@ -14,7 +16,7 @@ val m3uMockServerUrl = providers.gradleProperty("m3uMockServerUrl").orElse("http
 // to the machine's debug key, which differs between computers and CI runs.
 //   Local:  put dial-keystore.properties next to this file (see DIAL.md)
 //   CI:     set the DIAL_KEYSTORE_* repository secrets (see .github/workflows/firestick.yml)
-val dialKeystoreProperties = java.util.Properties().apply {
+val dialKeystoreProperties = Properties().apply {
     providers.fileContents(layout.projectDirectory.file("dial-keystore.properties"))
         .asText.orNull
         ?.let { load(it.reader()) }
