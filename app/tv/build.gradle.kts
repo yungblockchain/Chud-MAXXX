@@ -42,9 +42,9 @@ android {
         testInstrumentationRunnerArguments["m3uMockServerUrl"] = m3uMockServerUrl.get()
     }
     signingConfigs {
-        if (dialStoreFile != null) {
+        dialStoreFile?.let { keystorePath ->
             create("dial") {
-                storeFile = rootProject.file(dialStoreFile)
+                storeFile = rootProject.file(keystorePath)
                 storePassword = dialSigningValue("storePassword", "DIAL_KEYSTORE_PASSWORD")
                 keyAlias = dialSigningValue("keyAlias", "DIAL_KEY_ALIAS")
                 keyPassword = dialSigningValue("keyPassword", "DIAL_KEY_PASSWORD")
