@@ -288,25 +288,70 @@ struct DetailsView: View {
         .task { await load() }
     }
 
+    // Details come from either the film or the series lookup. These small helpers keep each
+    // expression simple, which the Swift compiler needs to type-check them quickly.
+    private var displayTitle: String {
+        if let title = film?.title { return title }
+        if let title = series?.title { return title }
+        return item.name
+    }
+
+    private var posterURL: String? {
+        if let poster = film?.poster { return poster }
+        if let poster = series?.poster { return poster }
+        return item.icon
+    }
+
+    private var plotText: String? {
+        if let plot = film?.plot { return plot }
+        return series?.plot
+    }
+
+    private var castText: String? {
+        if let cast = film?.cast { return cast }
+        return series?.cast
+    }
+
+    private var metaText: String {
+        var parts: [String] = []
+        if let year = film?.year {
+            parts.append(year)
+        } else if let year = series?.year {
+            parts.append(year)
+        }
+        var rating: String? = film?.rating
+        if rating == nil { rating = series?.rating }
+        if rating == nil { rating = item.rating }
+        if let rating {
+            parts.append("Rated \(rating)")
+        }
+        if let duration = film?.duration {
+            parts.append(duration)
+        }
+        if let genre = film?.genre {
+            parts.append(genre)
+        } else if let genre = series?.genre {
+            parts.append(genre)
+        }
+        return parts.joined(separator: "   ")
+    }
+
     private var header: some View {
-        let title = film?.title ?? series?.title ?? item.name
-        let meta = [film?.year ?? series?.year,
-                    (film?.rating ?? series?.rating ?? item.rating).map { "Rated \($0)" },
-                    film?.duration,
-                    film?.genre ?? series?.genre].compactMap { $0 }
+        let title: String = displayTitle
+        let meta: String = metaText
         return HStack(alignment: .top, spacing: 28) {
-            RemoteImage(url: film?.poster ?? series?.poster ?? item.icon, contentMode: .fill)
+            RemoteImage(url: posterURL, contentMode: .fill)
                 .frame(width: 200, height: 300)
                 .clipShape(HudShape(cut: 14))
                 .overlay(HudShape(cut: 14).stroke(Neon.cyan.opacity(0.5), lineWidth: 1))
             VStack(alignment: .leading, spacing: 14) {
                 NeonTitle(text: title, size: 28)
                 if !meta.isEmpty {
-                    Text(meta.joined(separator: "   "))
+                    Text(meta)
                         .font(NeonFont.body(14, bold: true))
                         .foregroundColor(Neon.magenta)
                 }
-                if let plot = film?.plot ?? series?.plot {
+                if let plot = plotText {
                     Text(plot)
                         .font(NeonFont.body(15))
                         .foregroundColor(Neon.textSecondary)
@@ -315,7 +360,7 @@ struct DetailsView: View {
                 if let director = film?.director {
                     Text("Director: \(director)").font(NeonFont.body(13)).foregroundColor(Neon.textMuted)
                 }
-                if let cast = film?.cast ?? series?.cast {
+                if let cast = castText {
                     Text("Cast: \(cast)").font(NeonFont.body(13)).foregroundColor(Neon.textMuted).lineLimit(2)
                 }
                 HStack(spacing: 12) {
@@ -397,8 +442,13 @@ struct DetailsView: View {
             film = try? await client.vodInfo(item.streamId)
         } else {
             series = try? await client.seriesInfo(item.streamId)
-            let saved = model.lastEpisode(forSeries: item.streamId)?.season
-            season = series?.seasons.first(where: { $0.key == saved })?.key ?? series?.seasons.first?.key ?? ""
+            let saved: String? = model.lastEpisode(forSeries: item.streamId)?.season
+            let seasons: [Season] = series?.seasons ?? []
+            if let match = seasons.first(where: { $0.key == saved }) {
+                season = match.key
+            } else {
+                season = seasons.first?.key ?? ""
+            }
         }
         loading = false
     }
@@ -526,11 +576,8 @@ struct SettingsView: View {
                         setting("Login", "\(credentials.username) on \(credentials.server)")
                     }
                     if let account = model.account {
-                        setting("Status", account.isTrial ? "\(account.status ?? "Active") (trial)" : account.status ?? "Active")
-                        setting("Expires", account.expiry.map { expiry in
-                            let days = Calendar.current.dateComponents([.day], from: Date(), to: expiry).day ?? 0
-                            return "\(expiry.formatted(date: .abbreviated, time: .omitted)) (\(days < 0 ? "expired" : "\(days) days left"))"
-                        } ?? "Never")
+                        setting("Status", statusText(account))
+                        setting("Expires", expiryText(account.expiry))
                         if let active = account.activeConnections, let max = account.maxConnections {
                             setting("Connections", "\(active) of \(max) in use")
                         }
@@ -561,6 +608,19 @@ struct SettingsView: View {
             }
             .padding(28)
         }
+    }
+
+    private func statusText(_ account: AccountInfo) -> String {
+        let status: String = account.status ?? "Active"
+        return account.isTrial ? "\(status) (trial)" : status
+    }
+
+    private func expiryText(_ expiry: Date?) -> String {
+        guard let expiry else { return "Never" }
+        let date: String = expiry.formatted(date: .abbreviated, time: .omitted)
+        let days: Int = Calendar.current.dateComponents([.day], from: Date(), to: expiry).day ?? 0
+        if days < 0 { return "\(date) (expired)" }
+        return "\(date) (\(days) days left)"
     }
 
     private func setting(_ label: String, _ value: String) -> some View {
