@@ -35,10 +35,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: 17
           distribution: zulu
@@ -46,7 +46,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-home-cache-cleanup: true
+          cache-cleanup: on-success
 
       - name: Restore signing key
         env:
@@ -61,13 +61,61 @@ jobs:
           fi
 
       - name: Build release APK
+        shell: bash
         env:
           DIAL_KEYSTORE_PASSWORD: ${{ secrets.DIAL_KEYSTORE_PASSWORD }}
           DIAL_KEY_ALIAS: ${{ secrets.DIAL_KEY_ALIAS }}
           DIAL_KEY_PASSWORD: ${{ secrets.DIAL_KEY_PASSWORD }}
         run: |
+          set -o pipefail
           chmod +x gradlew
-          ./gradlew :app:tv:assembleRelease --stacktrace
+          ./gradlew :app:tv:assembleRelease --stacktrace --console=plain 2>&1 | tee build.log
+
+      # If the build fails, copy the important error lines into annotations, which show on the
+      # run's summary page and through GitHub's API, so they can be read without the full log.
+      - name: Summarise build errors
+        if: failure()
+        shell: bash
+        run: |
+          [ -f build.log ] || exit 0
+          python3 - <<'PY'
+          import re
+
+          lines = open("build.log", encoding="utf-8", errors="replace").read().splitlines()
+          picked = []
+
+          def add(line):
+              line = line.rstrip()
+              if line and line not in picked:
+                  picked.append(line)
+
+          # Gradle's explanation blocks: "* What went wrong:" up to "* Try:".
+          for i, line in enumerate(lines):
+              if line.startswith("* What went wrong"):
+                  for follow in lines[i:i + 40]:
+                      if follow.startswith("* Try"):
+                          break
+                      add(follow)
+          # Compiler, resource and annotation-processor errors.
+          patterns = (r"^e: ", r"^w: .*(unresolved|type mismatch)", r"error:", r"^ERROR:", r"AAPT: error", r"^> Task .*FAILED")
+          for line in lines:
+              if any(re.search(p, line) for p in patterns):
+                  add(line)
+          if not picked:
+              picked = [l.rstrip() for l in lines[-80:]]
+
+          picked = picked[:400]
+
+          def escape(text):
+              return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+          chunk = 45
+          for n, start in enumerate(range(0, len(picked), chunk)):
+              if n >= 9:
+                  break
+              body = "\n".join(line[:400] for line in picked[start:start + chunk])
+              print(f"::error title=Build error details part {n + 1}::{escape(body)}")
+          PY
 
       - name: Collect APK
         run: |
