@@ -32,6 +32,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      # Needed to publish the APK as a GitHub release (a stable download link for the Firestick).
+      contents: write
 
     steps:
       - name: Checkout
@@ -134,3 +137,20 @@ jobs:
           path: dist/*.apk
           if-no-files-found: error
           retention-days: 30
+
+      # Every successful build on main is also published as a release, so the newest APK is
+      # always at the same address, which can be typed straight into Downloader on the Fire TV:
+      #   https://github.com/<owner>/<repo>/releases/latest/download/chud-streams.apk
+      - name: Publish the APK for Downloader
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp dist/*.apk chud-streams.apk
+          gh release create "build-${{ github.run_number }}" chud-streams.apk \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "CHUD STREAMS build ${{ github.run_number }}" \
+            --notes "Fire TV APK. In Downloader, enter: https://github.com/${{ github.repository }}/releases/latest/download/chud-streams.apk" \
+            --latest
+          echo "::notice::Download link for Downloader: https://github.com/${{ github.repository }}/releases/latest/download/chud-streams.apk"

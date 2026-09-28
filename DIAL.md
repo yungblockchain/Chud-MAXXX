@@ -178,13 +178,16 @@ safe, since losing it means uninstalling to update.
 1. Settings > My Fire TV > About: select the device name seven times to unlock Developer Options.
 2. Settings > My Fire TV > Developer Options: turn on ADB debugging, and under
    "Install unknown apps" allow the app you'll install from (Downloader, if using it).
-3. Get the APK across, either way works:
-   - **From a computer with adb:** find the stick's IP under Settings > My Fire TV > About >
-     Network, then run `adb connect IP:5555` and `adb install -r chud-streams.apk`. Accept the
-     prompt on the TV the first time.
-   - **With Downloader** (free in the Amazon Appstore): host the APK at a direct link (for
-     example, a GitHub Release asset in a public repo), enter the link in Downloader, and install.
-4. Open Dial from Your Apps & Channels. It opens on the sign-in screen.
+3. Get the APK across. Every successful build publishes the newest APK at a fixed address, so
+   the simplest way is to open **Downloader** on the Fire TV and enter:
+
+   `https://github.com/yungblockchain/Chud-Streams/releases/latest/download/chud-streams.apk`
+
+   then choose **Install**. (If you fork or rename the repository, swap in its name.) With a
+   computer and adb instead: find the stick's IP under Settings > My Fire TV > About > Network,
+   run `adb connect IP:5555` and `adb install -r chud-streams.apk`, and accept the prompt on the
+   TV the first time.
+4. Open CHUD STREAMS from Your Apps & Channels. The logo spins, then the sign-in screen opens.
 
 ## Troubleshooting
 
