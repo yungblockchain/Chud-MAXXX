@@ -30,3 +30,9 @@ samples/*/build/
 # Dial signing (never commit these)
 dial-keystore.properties
 *.keystore
+
+# Mac app build output
+mac/.build/
+mac/build/
+mac/build.log
+mac/chud-streams-mac.zip

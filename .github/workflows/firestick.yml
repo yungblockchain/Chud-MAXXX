@@ -20,6 +20,8 @@ on:
     branches: [ "main", "master" ]
     paths-ignore:
       - "**.md"
+      - "mac/**"
+      - ".github/workflows/mac.yml"
 
 permissions:
   contents: read
