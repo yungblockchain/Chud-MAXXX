@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Overrides the upstream i18n value ("M3U TV") for the TV build only. -->
+    <string name="tv_home_title" translatable="false">CHUD STREAMS</string>
+
+    <string name="dial_nav_account">Account</string>
+    <string name="dial_brand_katakana" translatable="false">チャッド・ストリームズ</string>
+
+    <!-- Sign in -->
+    <string name="dial_signin_title">Sign in with your Xtream account</string>
+    <string name="dial_signin_body">Your provider gave you a server address, a username and a password. Enter them here, or paste the whole M3U link into the server field and CHUD STREAMS will read the rest from it.</string>
+    <string name="dial_signin_keyboard_hint">Press the centre button on a field to open the keyboard.</string>
+    <string name="dial_field_server">Server</string>
+    <string name="dial_field_server_placeholder">http://example.com:8080</string>
+    <string name="dial_field_username">Username</string>
+    <string name="dial_field_password">Password</string>
+    <string name="dial_field_name">Name (optional)</string>
+    <string name="dial_field_name_placeholder">Shown in your library</string>
+    <string name="dial_action_sign_in">Sign in</string>
+    <string name="dial_action_cancel">Cancel</string>
+    <string name="dial_signin_checking">Checking your details…</string>
+    <string name="dial_signin_importing">Signed in. Loading your channels, films and series. Large lists can take a minute.</string>
+    <string name="dial_signin_done">All set. Your channels are in Home and Library.</string>
+    <string name="dial_error_missing_server">Enter the server address from your provider.</string>
+    <string name="dial_error_missing_credentials">Enter both your username and password.</string>
+    <string name="dial_error_unreachable">Couldn\'t reach that server. Check the address, including the port number, then try again.</string>
+    <string name="dial_error_rejected">The server didn\'t accept that username and password.</string>
+    <string name="dial_error_inactive">This account is marked \"%1$s\". Contact your provider to renew it.</string>
+    <string name="dial_error_inactive_generic">This account isn\'t active. Contact your provider to renew it.</string>
+    <string name="dial_error_import">Signed in, but loading channels failed. Check your connection and try again.</string>
+
+    <!-- Accounts -->
+    <string name="dial_accounts_title">Accounts</string>
+    <string name="dial_accounts_subtitle">Xtream logins on this device</string>
+    <string name="dial_account_login">%1$s on %2$s</string>
+    <string name="dial_account_status_label">Status</string>
+    <string name="dial_account_expires_label">Expires</string>
+    <string name="dial_account_connections_label">Connections</string>
+    <string name="dial_account_status_active">Active</string>
+    <string name="dial_account_status_trial">Active (trial)</string>
+    <string name="dial_account_checking">Checking…</string>
+    <string name="dial_account_unreachable">Server not responding</string>
+    <string name="dial_account_rejected">Login no longer accepted</string>
+    <string name="dial_account_no_expiry">Never</string>
+    <string name="dial_account_expires_value">%1$s (%2$s)</string>
+    <string name="dial_account_expired">expired</string>
+    <plurals name="dial_account_days_left">
+        <item quantity="one">%d day left</item>
+        <item quantity="other">%d days left</item>
+    </plurals>
+    <string name="dial_account_connections_value">%1$d of %2$d in use</string>
+    <string name="dial_account_not_reported">Not reported</string>
+    <string name="dial_action_check_again">Check again</string>
+    <string name="dial_action_remove">Remove</string>
+    <string name="dial_action_remove_confirm">Press again to remove</string>
+    <string name="dial_action_add_account">Add another account</string>
+
+    <!-- Player -->
+    <string name="dial_player_tuning">Tuning in…</string>
+    <string name="dial_player_hint_live">Up and down change channel</string>
+    <string name="dial_player_hint_on_demand">Rewind skips back %1$d seconds, fast-forward skips ahead %2$d</string>
+    <string name="dial_player_start_over">Start over</string>
+    <string name="dial_player_previous_channel">Previous channel</string>
+    <string name="dial_player_next_channel">Next channel</string>
+    <string name="dial_player_favourite_add">Add to favourites</string>
+    <string name="dial_player_favourite_remove">Remove from favourites</string>
+    <string name="dial_player_sleep">Sleep timer</string>
+    <string name="dial_player_sleep_off">Off</string>
+    <string name="dial_player_sleep_left">%1$d min left</string>
+    <string name="dial_player_channel_number">Channel %1$d</string>
+    <!-- Navigation -->
+    <string name="dial_nav_guide">Guide</string>
+
+    <!-- Home -->
+    <string name="dial_continue_title">Continue watching</string>
+    <string name="dial_continue_subtitle">Films and series you started</string>
+
+    <!-- Details -->
+    <string name="dial_details_loading">Loading details…</string>
+    <string name="dial_details_unavailable">The provider didn\'t send details for this title.</string>
+    <string name="dial_details_play">Play</string>
+    <string name="dial_details_resume">Resume from %1$s</string>
+    <string name="dial_details_start_over">Start over</string>
+    <string name="dial_details_continue_episode">Continue S%1$s E%2$s</string>
+    <string name="dial_details_play_first">Play first episode</string>
+    <string name="dial_details_season">Season %1$s</string>
+    <string name="dial_details_episode">E%1$s</string>
+    <string name="dial_details_rating">Rated %1$s</string>
+    <string name="dial_details_director">Director: %1$s</string>
+    <string name="dial_details_cast">Cast: %1$s</string>
+    <string name="dial_details_no_episodes">The provider hasn\'t listed any episodes for this series.</string>
+    <string name="dial_details_last_watched">Last watched</string>
+
+    <!-- Guide -->
+    <string name="dial_guide_all_channels">All channels</string>
+    <string name="dial_guide_no_live">Add a live TV playlist to see the guide.</string>
+    <string name="dial_guide_now">Now</string>
+    <string name="dial_guide_catch_up">Catch up</string>
+    <string name="dial_guide_loading">Loading schedule…</string>
+    <string name="dial_guide_empty">No schedule for this channel.</string>
+    <string name="dial_guide_unsupported">Schedules come from Xtream accounts, and this channel isn\'t from one.</string>
+    <string name="dial_guide_time_range">%1$s to %2$s</string>
+    <string name="dial_guide_pick_channel">Choose a channel to see its schedule.</string>
+    <string name="dial_guide_catch_up_hint">Programmes marked Catch up can be replayed from the start.</string>
+
+    <!-- Settings -->
+    <string name="dial_settings_tab_dial">Player and startup</string>
+    <string name="dial_settings_tab_sources">Sources and extensions</string>
+    <string name="dial_settings_section_startup">Startup</string>
+    <string name="dial_settings_section_player">Live TV player</string>
+    <string name="dial_settings_section_on_demand">Films and series</string>
+    <string name="dial_setting_startup">Open on start</string>
+    <string name="dial_setting_launch_animation">Spinning logo on launch</string>
+    <string name="dial_setting_controls_timeout">Hide controls after</string>
+    <string name="dial_setting_channel_keys">Channel up and down</string>
+    <string name="dial_setting_channel_numbers">Channel numbers</string>
+    <string name="dial_setting_channel_banner">Channel banner when switching</string>
+    <string name="dial_setting_aspect">Picture size</string>
+    <string name="dial_setting_match_frame_rate">Match the video\'s frame rate</string>
+    <string name="dial_setting_skip_back">Rewind skips back</string>
+    <string name="dial_setting_skip_ahead">Fast-forward skips ahead</string>
+    <string name="dial_setting_resume">Resume where you left off</string>
+    <string name="dial_setting_clear_history">Clear continue watching</string>
+    <string name="dial_value_home">Home</string>
+    <string name="dial_value_last_channel">Last channel watched</string>
+    <string name="dial_value_guide">Guide</string>
+    <string name="dial_value_on">On</string>
+    <string name="dial_value_off">Off</string>
+    <string name="dial_value_normal">Normal</string>
+    <string name="dial_value_reversed">Reversed</string>
+    <string name="dial_value_fit">Fit to screen</string>
+    <string name="dial_value_stretch">Stretch</string>
+    <string name="dial_value_zoom">Zoom to fill</string>
+    <string name="dial_value_seconds">%1$d seconds</string>
+    <string name="dial_value_clear">Press to clear</string>
+    <string name="dial_value_cleared">Cleared</string>
+    <!-- Guide: timeline grid -->
+    <string name="dial_guide_layout_grid">Timeline</string>
+    <string name="dial_guide_layout_list">Channel list</string>
+    <string name="dial_grid_hint">Up and down move between channels, left and right move through time. Press OK to watch.</string>
+    <string name="dial_grid_loading">Loading…</string>
+    <string name="dial_grid_no_info">No programme information</string>
+    <string name="dial_grid_minutes">(%1$d min)</string>
+    <string name="dial_grid_upcoming">Coming up</string>
+    <string name="dial_grid_catch_up_description">Available to replay</string>
+    <string name="dial_setting_guide_layout">Guide layout</string>
+    <string name="dial_settings_section_guide">Guide</string>
+    <!-- Markets -->
+    <string name="dial_nav_markets">Markets</string>
+    <string name="dial_markets_trending">Trending</string>
+    <string name="dial_markets_pumpfun">Pump.fun</string>
+    <string name="dial_markets_new">New</string>
+    <string name="dial_markets_watchlist">Watchlist</string>
+    <string name="dial_markets_search">Search</string>
+    <string name="dial_markets_all_chains">All chains</string>
+    <string name="dial_markets_search_label">Token name, symbol or contract address</string>
+    <string name="dial_markets_search_placeholder">BONK, or paste an address</string>
+    <string name="dial_markets_loading">Loading market data…</string>
+    <string name="dial_markets_failed">Couldn\'t reach DEX Screener. Trying again in 30 seconds.</string>
+    <string name="dial_markets_stale">The last update failed, so these prices may be out of date. Trying again in 30 seconds.</string>
+    <string name="dial_markets_empty">Nothing to show for this chain right now.</string>
+    <string name="dial_markets_watchlist_empty">Your watchlist is empty. Press OK on any token to add it.</string>
+    <string name="dial_markets_search_prompt">Search for a token by name, symbol or contract address, then press Done.</string>
+    <string name="dial_markets_updated">Updated %1$s. Data from DEX Screener, refreshed every 30 seconds.</string>
+    <string name="dial_markets_hint">Move through the list to see a token\'s details. Press OK to add it to your watchlist or remove it.</string>
+    <string name="dial_markets_market_cap">Market cap</string>
+    <string name="dial_markets_fdv">Fully diluted value</string>
+    <string name="dial_markets_liquidity">Liquidity</string>
+    <string name="dial_markets_volume">24h volume</string>
+    <string name="dial_markets_txns">24h trades</string>
+    <string name="dial_markets_txns_value">%1$d buys, %2$d sells</string>
+    <string name="dial_markets_age">Pool age</string>
+    <string name="dial_markets_exchange">Chain and exchange</string>
+    <string name="dial_markets_address">Token address</string>
+    <string name="dial_markets_boosts_label">Active boosts</string>
+    <string name="dial_markets_watch_add">Add to watchlist</string>
+    <string name="dial_markets_watch_remove">Remove from watchlist</string>
+    <!-- Games -->
+    <string name="dial_nav_games">Games</string>
+    <string name="dial_games_title">Arcade</string>
+    <string name="dial_games_subtitle">Three quick games for the remote. Back returns here.</string>
+    <string name="dial_games_best">Best %1$d</string>
+    <string name="dial_games_score">Score %1$d</string>
+    <string name="dial_games_press_ok">Press OK to start</string>
+    <string name="dial_games_over">Game over\nScore %1$d\nPress OK to play again</string>
+    <string name="dial_game_snake">Snake</string>
+    <string name="dial_game_snake_blurb">Steer, eat, grow. Don\'t hit the walls or yourself.</string>
+    <string name="dial_game_snake_hint">Arrows steer</string>
+    <string name="dial_game_blocks">Blocks</string>
+    <string name="dial_game_blocks_blurb">Fit the falling pieces together to clear full rows.</string>
+    <string name="dial_game_blocks_hint">Level %1$d. Left and right move, up turns, down drops faster, OK drops at once</string>
+    <string name="dial_game_skyhop">Sky Hop</string>
+    <string name="dial_game_skyhop_blurb">Bounce from ledge to ledge and climb as high as you can.</string>
+    <string name="dial_game_skyhop_hint">Hold left or right to steer. Off one side, back on the other</string>
+</resources>
