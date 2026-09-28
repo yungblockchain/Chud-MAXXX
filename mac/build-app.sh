@@ -24,12 +24,12 @@ if [ -n "${ARCH:-}" ]; then
     ARCH_ARGS=(--arch "$ARCH")
 fi
 
-echo "Compiling (the first build takes a few minutes)…"
+echo "Compiling (the first build takes a few minutes)..."
 # The ${…+…} form keeps an empty array safe under `set -u` in macOS's bash 3.2.
 swift build -c release ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"}
 BIN_DIR="$(swift build -c release ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} --show-bin-path)"
 
-echo "Packaging $APP…"
+echo "Packaging ${APP}..."
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/$EXECUTABLE" "$APP/Contents/MacOS/$EXECUTABLE"
