@@ -11,7 +11,8 @@ name: Build CHUD STREAMS for Mac
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "master" ]
+    # mac-dev is for work in progress: it builds and tests, but only main publishes.
+    branches: [ "main", "master", "mac-dev" ]
     paths:
       - "mac/**"
       - ".github/workflows/mac.yml"
@@ -40,6 +41,18 @@ jobs:
           sw_vers
           xcodebuild -version
           swift --version
+
+      # The mpv libraries (MPVKit) are large downloads; keep them between builds.
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            mac/.build/artifacts
+            mac/.build/checkouts
+            mac/.build/repositories
+          key: swiftpm-${{ runner.os }}-${{ hashFiles('mac/Package.swift', 'mac/Package.resolved') }}
+          restore-keys: swiftpm-${{ runner.os }}-
 
       # The runner has an Apple silicon chip; ARCH=x86_64 builds for Intel Macs such as a
       # 2017 MacBook Pro. Package.swift sets macOS 13 as the minimum.
@@ -80,6 +93,25 @@ jobs:
               body = "\n".join(line[:400] for line in picked[start:start + 45])
               print(f"::error title=Mac build error details part {n + 1}::{escape(body)}")
           PY
+
+      # The runner is an Apple silicon Mac, so the Intel build runs under Rosetta here, the
+      # same way it would on an Intel Mac's own chip. The self-test plays a test video through
+      # the built-in player's OpenGL renderer and checks a real picture comes out.
+      - name: Test the built-in player
+        working-directory: mac
+        shell: bash
+        run: |
+          /usr/bin/pgrep -q oahd || softwareupdate --install-rosetta --agree-to-license || true
+          APP="build/CHUD STREAMS.app/Contents/MacOS/ChudStreams"
+          for f in Tests/fixtures/sample.mkv Tests/fixtures/sample.ts; do
+            echo "::group::Self-test $f"
+            if ! "$APP" --selftest-mpv "$f" 2>&1 | tee selftest.log; then
+              echo "::error title=Player self-test failed on $f::$(tail -25 selftest.log | tr '\n' '|' | cut -c1-3000)"
+              exit 1
+            fi
+            echo "::notice title=Player self-test $f::$(grep '\[selftest\]' selftest.log | tr '\n' '|' | cut -c1-3000)"
+            echo "::endgroup::"
+          done
 
       - name: Package the app
         working-directory: mac

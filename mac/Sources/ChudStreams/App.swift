@@ -6,6 +6,7 @@ struct ChudStreamsApp: App {
     @StateObject private var model = AppModel()
 
     init() {
+        SelfTest.runIfRequested()
         NeonFont.registerBundledFonts()
     }
 
