@@ -24,6 +24,7 @@ on:
       - ".github/workflows/mac.yml"
       - ".github/workflows/tv-screenshots.yml"
       - ".github/scripts/**"
+      - "testing/mock-server/**"
 
 permissions:
   contents: read
