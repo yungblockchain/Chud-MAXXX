@@ -7,6 +7,7 @@ import com.m3u.data.database.dao.ChannelDao
 import com.m3u.data.database.dao.PlaylistDao
 import com.m3u.data.database.model.AdjacentChannels
 import com.m3u.data.database.model.Channel
+import com.m3u.data.database.model.ChannelCategoryCount
 import com.m3u.data.repository.playlist.PlaylistDataMaintenanceCoordinator
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -61,6 +62,26 @@ internal class ChannelRepositoryImpl @Inject constructor(
     )
 
     override suspend fun getByPlaylistUrl(playlistUrl: String): List<Channel> = channelDao.getByPlaylistUrl(playlistUrl)
+
+    override suspend fun getCategoryCounts(playlistUrl: String): List<ChannelCategoryCount> =
+        channelDao.getCategoryCounts(playlistUrl)
+
+    override suspend fun getUnhidden(
+        playlistUrl: String,
+        category: String?,
+        byTitle: Boolean,
+    ): List<Channel> = when {
+        category == null && byTitle -> channelDao.getUnhiddenByTitle(playlistUrl)
+        category == null -> channelDao.getUnhiddenInProviderOrder(playlistUrl)
+        byTitle -> channelDao.getUnhiddenInCategoryByTitle(playlistUrl, category)
+        else -> channelDao.getUnhiddenInCategoryInProviderOrder(playlistUrl, category)
+    }
+
+    override suspend fun searchUnhidden(query: String, limit: Int): List<Channel> {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty() || limit <= 0) return emptyList()
+        return channelDao.searchUnhidden(trimmed, limit)
+    }
 
     override suspend fun getByRelationIds(relationIds: List<String>): List<Channel> =
         if (relationIds.isEmpty()) emptyList() else channelDao.getByRelationIds(relationIds)

@@ -13,8 +13,11 @@ import com.m3u.core.foundation.architecture.preferences.PreferencesKeys
 import com.m3u.core.foundation.architecture.preferences.Settings
 import com.m3u.core.foundation.architecture.preferences.set
 import com.m3u.data.database.model.Channel
+import com.m3u.data.database.model.ChannelCategoryCount
 import com.m3u.data.database.model.DataSource
 import com.m3u.data.database.model.Playlist
+import com.m3u.data.database.model.isSeries
+import com.m3u.data.database.model.isVod
 import com.m3u.data.repository.channel.ChannelRepository
 import com.m3u.data.repository.extension.ExtensionSettingEditToken
 import com.m3u.data.repository.extension.ExtensionSettingUpdateResult
@@ -43,6 +46,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -59,7 +63,15 @@ data class TvUiState(
     val playlists: List<Playlist> = emptyList(),
     val counts: Map<Playlist, Int> = emptyMap(),
     val selectedPlaylist: Playlist? = null,
+    /** The selected playlist's entries: all of them, or just [selectedCategory]. */
     val channels: List<Channel> = emptyList(),
+    /** Categories of the selected playlist, in the provider's order. */
+    val categories: List<ChannelCategoryCount> = emptyList(),
+    /** Null means every category ("All"), which only big-enough playlists skip. */
+    val selectedCategory: String? = null,
+    val searchQuery: String = "",
+    val searchResults: List<Channel> = emptyList(),
+    val searching: Boolean = false,
     val favorites: List<Channel> = emptyList(),
     val recent: Channel? = null,
     val loadingChannels: Boolean = false,
@@ -77,6 +89,10 @@ data class TvUiState(
     val providerSubscriptionFeedback: TvProviderSubscriptionFeedback? = null,
 ) {
     val channelCount: Int get() = counts.values.sum()
+
+    /** "All" is offered unless the playlist is too big to hold in memory at once. */
+    val allCategoriesAllowed: Boolean
+        get() = categories.sumOf { it.count } <= ALL_CATEGORIES_LIMIT
     val heroChannel: Channel? get() = recent ?: channels.firstOrNull()
 }
 
@@ -137,13 +153,6 @@ class TvHomeViewModel @Inject constructor(
                             locale = locale,
                         )
                     ),
-                    channels = state.channels.sortedWith(
-                        localeAwareComparator(
-                            primarySelector = Channel::category,
-                            secondarySelector = Channel::title,
-                            locale = locale,
-                        )
-                    ),
                 )
             }
         }
@@ -178,8 +187,45 @@ class TvHomeViewModel @Inject constructor(
 
     fun selectPlaylist(playlist: Playlist) {
         if (_state.value.selectedPlaylist?.url == playlist.url) return
-        _state.update { it.copy(selectedPlaylist = playlist) }
+        _state.update {
+            it.copy(selectedPlaylist = playlist, selectedCategory = null, categories = emptyList())
+        }
         loadChannels(playlist.url)
+    }
+
+    /** Shows one category of the selected playlist, or all of it for null (when allowed). */
+    fun selectCategory(category: String?) {
+        val state = _state.value
+        val url = state.selectedPlaylist?.url ?: return
+        if (category == state.selectedCategory) return
+        if (category == null && !state.allCategoriesAllowed) return
+        _state.update { it.copy(selectedCategory = category) }
+        loadChannels(url, keepCategory = true)
+    }
+
+    private var searchJob: Job? = null
+
+    /** Searches titles across every playlist, a moment after typing stops. */
+    fun search(query: String) {
+        _state.update { it.copy(searchQuery = query) }
+        searchJob?.cancel()
+        val trimmed = query.trim()
+        if (trimmed.length < SEARCH_MIN_LENGTH) {
+            _state.update { it.copy(searchResults = emptyList(), searching = false) }
+            return
+        }
+        searchJob = viewModelScope.launch(Dispatchers.IO) {
+            _state.update { it.copy(searching = true) }
+            delay(SEARCH_DEBOUNCE_MS)
+            val results = channelRepository.searchUnhidden(trimmed, SEARCH_LIMIT)
+            _state.update { state ->
+                if (state.searchQuery.trim() == trimmed) {
+                    state.copy(searchResults = results, searching = false)
+                } else {
+                    state
+                }
+            }
+        }
     }
 
     fun refreshSelectedPlaylist() {
@@ -773,7 +819,7 @@ class TvHomeViewModel @Inject constructor(
                     }
 
                     if (selected != null && (selected.url != previous?.url || selectedCount != previousCount)) {
-                        loadChannels(selected.url)
+                        loadChannels(selected.url, keepCategory = selected.url == previous?.url)
                     }
                 }
         }
@@ -795,23 +841,32 @@ class TvHomeViewModel @Inject constructor(
         }
     }
 
-    private fun loadChannels(url: String) {
+    /**
+     * Loads the selected playlist one category at a time. A playlist small enough is shown whole
+     * ("All"); a huge one (50k channels, 130k films) opens on its first category instead, so the
+     * Fire TV never holds the whole catalogue in memory.
+     */
+    private fun loadChannels(url: String, keepCategory: Boolean = true) {
         loadChannelsJob?.cancel()
         loadChannelsJob = viewModelScope.launch(Dispatchers.IO) {
             _state.update { it.copy(loadingChannels = true) }
-            val channels = channelRepository
-                .getByPlaylistUrl(url)
-                .filterNot { it.hidden }
-                .sortedWith(
-                    localeAwareComparator(
-                        primarySelector = Channel::category,
-                        secondarySelector = Channel::title,
-                        locale = sortLocale,
-                    )
-                )
+            val categories = channelRepository.getCategoryCounts(url)
+            val total = categories.sumOf { it.count }
+            val wanted = _state.value.selectedCategory.takeIf { keepCategory }
+            val category = when {
+                wanted != null && categories.any { it.name == wanted } -> wanted
+                total <= ALL_CATEGORIES_LIMIT -> null
+                else -> categories.firstOrNull()?.name
+            }
+            val playlist = _state.value.selectedPlaylist?.takeIf { it.url == url }
+            // Films and series read best A to Z; live channels keep the provider's numbering.
+            val byTitle = playlist != null && (playlist.isVod || playlist.isSeries)
+            val channels = channelRepository.getUnhidden(url, category, byTitle)
             _state.update { state ->
                 if (state.selectedPlaylist?.url == url) {
                     state.copy(
+                        categories = categories,
+                        selectedCategory = category,
                         channels = channels,
                         loadingChannels = false
                     )
@@ -827,8 +882,17 @@ class TvHomeViewModel @Inject constructor(
 
     private companion object {
         const val TV_SETTINGS_SURFACE = "tv"
+        const val SEARCH_MIN_LENGTH = 2
+        const val SEARCH_DEBOUNCE_MS = 350L
+        const val SEARCH_LIMIT = 300
     }
 }
+
+/**
+ * Largest playlist the Fire TV shows as a single "All" list. Bigger ones are browsed a category
+ * at a time (about 30 MB of channel data at this size).
+ */
+const val ALL_CATEGORIES_LIMIT = 40_000
 
 private data class TvExtensionSettingsRefreshResult(
     val configuration: ExtensionSettingsConfiguration?,

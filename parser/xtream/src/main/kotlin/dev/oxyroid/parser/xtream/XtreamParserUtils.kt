@@ -4,6 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.decodeToSequence
 import okhttp3.OkHttpClient
@@ -38,14 +40,25 @@ internal class XtreamParserUtils(
                 }
         }
 
+    /**
+     * Streams a JSON array of catalogue entries. Each entry is decoded on its own, so one
+     * malformed item (an empty-string id, a number too large for an Int...) in a catalogue of
+     * hundreds of thousands is skipped instead of failing the whole import.
+     */
     @OptIn(ExperimentalSerializationApi::class)
     inline fun <reified T> newSequenceCall(url: String): Sequence<T> = sequence {
         val call = okHttpClient.newCall(Request.Builder().url(url).build())
         call.execute().use { response ->
             if (!response.isSuccessful) return@use
             response.body?.byteStream()?.use { input ->
-                json.decodeToSequence<T>(input).forEach { item ->
-                    yield(item)
+                json.decodeToSequence<JsonElement>(input).forEach { element ->
+                    val item: T? = try {
+                        json.decodeFromJsonElement<T>(element)
+                    } catch (_: IllegalArgumentException) {
+                        // SerializationException is an IllegalArgumentException.
+                        null
+                    }
+                    if (item != null) yield(item)
                 }
             }
         }

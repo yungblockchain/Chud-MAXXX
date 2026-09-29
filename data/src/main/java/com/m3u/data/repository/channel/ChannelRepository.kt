@@ -5,6 +5,7 @@ import androidx.paging.PagingSource
 import com.m3u.core.foundation.wrapper.Sort
 import com.m3u.data.database.model.AdjacentChannels
 import com.m3u.data.database.model.Channel
+import com.m3u.data.database.model.ChannelCategoryCount
 import kotlinx.coroutines.flow.Flow
 import kotlin.time.Duration
 
@@ -29,6 +30,22 @@ interface ChannelRepository {
     ): Flow<AdjacentChannels>
 
     suspend fun getByPlaylistUrl(playlistUrl: String): List<Channel>
+
+    /** Categories of a playlist with their visible entry counts, in the provider's order. */
+    suspend fun getCategoryCounts(playlistUrl: String): List<ChannelCategoryCount>
+
+    /**
+     * Visible entries of a playlist, or of one [category] of it (null for all), in the provider's
+     * order or alphabetically by title.
+     */
+    suspend fun getUnhidden(
+        playlistUrl: String,
+        category: String?,
+        byTitle: Boolean,
+    ): List<Channel>
+
+    /** Visible entries across all playlists whose title contains [query]. */
+    suspend fun searchUnhidden(query: String, limit: Int): List<Channel>
     suspend fun getByRelationIds(relationIds: List<String>): List<Channel>
     suspend fun favouriteOrUnfavourite(id: Int)
     suspend fun hide(id: Int, target: Boolean)

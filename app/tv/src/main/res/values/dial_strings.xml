@@ -19,7 +19,8 @@
     <string name="dial_action_sign_in">Sign in</string>
     <string name="dial_action_cancel">Cancel</string>
     <string name="dial_signin_checking">Checking your details…</string>
-    <string name="dial_signin_importing">Signed in. Loading your channels, films and series. Large lists can take a minute.</string>
+    <string name="dial_signin_importing">Signed in. Loading your channels, films and series. Large lists can take a few minutes.</string>
+    <string name="dial_signin_importing_count">Signed in. Loading your channels, films and series: %1$,d so far. Large lists can take a few minutes.</string>
     <string name="dial_signin_done">All set. Your channels are in Home and Library.</string>
     <string name="dial_error_missing_server">Enter the server address from your provider.</string>
     <string name="dial_error_missing_credentials">Enter both your username and password.</string>
@@ -202,4 +203,18 @@
     <string name="dial_game_skyhop">Sky Hop</string>
     <string name="dial_game_skyhop_blurb">Bounce from ledge to ledge and climb as high as you can.</string>
     <string name="dial_game_skyhop_hint">Hold left or right to steer. Off one side, back on the other</string>
+    <!-- Library: big playlists, categories and search -->
+    <string name="dial_library_search_label">Search</string>
+    <string name="dial_library_search_placeholder">Any channel, film or series</string>
+    <string name="dial_library_searching">Searching…</string>
+    <string name="dial_library_search_results">Top matches for “%1$s”</string>
+    <string name="dial_library_search_none">Nothing matches “%1$s”.</string>
+    <string name="dial_category_all">All · %1$d</string>
+    <string name="dial_category_chip">%1$s · %2$d</string>
+    <string name="dial_category_uncategorised">Other</string>
+    <!-- Why loading channels failed after a successful sign-in -->
+    <string name="dial_error_import_timeout">Signed in, but the server took too long to send its channel list. Try again, ideally when it\'s less busy.</string>
+    <string name="dial_error_import_network">Signed in, but the connection dropped while loading channels. Check the Fire TV\'s internet and try again.</string>
+    <string name="dial_error_import_storage">Signed in, but the Fire TV is out of storage space for the channel list. Free some space and try again.</string>
+    <string name="dial_error_import_too_large">Signed in, but this account has more than a million channels, films and series, which is more than CHUD STREAMS can hold.</string>
 </resources>

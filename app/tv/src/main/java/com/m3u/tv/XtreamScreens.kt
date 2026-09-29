@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
+import com.m3u.data.worker.SubscriptionWorker
 import java.text.DateFormat
 import java.util.Date
 import java.util.concurrent.TimeUnit
@@ -214,8 +215,11 @@ private fun SignInMessage(phase: XtreamSignInPhase) {
         XtreamSignInPhase.Idle -> return
         XtreamSignInPhase.Checking ->
             stringResource(R.string.dial_signin_checking) to TvColors.TextSecondary
-        XtreamSignInPhase.Importing ->
+        is XtreamSignInPhase.Importing -> if (phase.count > 0) {
+            stringResource(R.string.dial_signin_importing_count, phase.count) to TvColors.TextSecondary
+        } else {
             stringResource(R.string.dial_signin_importing) to TvColors.TextSecondary
+        }
         XtreamSignInPhase.Done ->
             stringResource(R.string.dial_signin_done) to TvColors.Positive
         is XtreamSignInPhase.Failed -> signInErrorText(phase) to TvColors.Danger
@@ -257,7 +261,13 @@ private fun signInErrorText(failure: XtreamSignInPhase.Failed): String = when (f
         ?.takeIf { it.isNotBlank() }
         ?.let { stringResource(R.string.dial_error_inactive, it) }
         ?: stringResource(R.string.dial_error_inactive_generic)
-    XtreamSignInError.ImportFailed -> stringResource(R.string.dial_error_import)
+    XtreamSignInError.ImportFailed -> when (failure.detail) {
+        SubscriptionWorker.FAILURE_TIMEOUT -> stringResource(R.string.dial_error_import_timeout)
+        SubscriptionWorker.FAILURE_NETWORK -> stringResource(R.string.dial_error_import_network)
+        SubscriptionWorker.FAILURE_STORAGE -> stringResource(R.string.dial_error_import_storage)
+        SubscriptionWorker.FAILURE_TOO_LARGE -> stringResource(R.string.dial_error_import_too_large)
+        else -> stringResource(R.string.dial_error_import)
+    }
 }
 
 /**

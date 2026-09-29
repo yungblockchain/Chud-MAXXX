@@ -30,7 +30,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +69,7 @@ fun GuideScreen(
     state: TvUiState,
     dial: DialViewModel,
     onSelectPlaylist: (Playlist) -> Unit,
+    onSelectCategory: (String?) -> Unit,
     onPlayLive: (Channel) -> Unit,
     onPlayCatchUp: (Channel, GuideProgramme) -> Unit,
 ) {
@@ -89,17 +89,14 @@ fun GuideScreen(
         return
     }
 
-    val channels = if (selected != null) state.channels else emptyList()
-    val numbers = remember(channels) {
-        channels.withIndex().associate { (index, channel) -> channel.id to index + 1 }
+    // The selected category (or all of a small playlist) is loaded by TvHomeViewModel, shared
+    // with the Library, so a 50k-channel provider is never held in memory all at once.
+    val visible = if (selected != null) state.channels else emptyList()
+    val numbers = remember(visible) {
+        visible.withIndex().associate { (index, channel) -> channel.id to index + 1 }
     }
-    val categories = remember(channels) {
-        channels.map { it.category }.filter { it.isNotBlank() }.distinct()
-    }
-    var category by rememberSaveable(selected?.url) { mutableStateOf<String?>(null) }
-    val visible = remember(channels, category) {
-        if (category == null) channels else channels.filter { it.category == category }
-    }
+    val uncategorised = stringResource(R.string.dial_category_uncategorised)
+    val showCategories = selected != null && state.categories.size > 1
     var focusedChannel by remember { mutableStateOf<Channel?>(null) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -151,21 +148,23 @@ fun GuideScreen(
                     )
                 }
             }
-            if (categories.isNotEmpty()) {
-                item(key = "all") {
-                    TvActionButton(
-                        text = stringResource(R.string.dial_guide_all_channels),
-                        icon = Icons.Rounded.Category,
-                        selected = category == null,
-                        onClick = { category = null },
-                    )
+            if (showCategories) {
+                if (state.allCategoriesAllowed) {
+                    item(key = "all") {
+                        TvActionButton(
+                            text = stringResource(R.string.dial_guide_all_channels),
+                            icon = Icons.Rounded.Category,
+                            selected = state.selectedCategory == null,
+                            onClick = { onSelectCategory(null) },
+                        )
+                    }
                 }
-                items(categories, key = { "category-$it" }) { name ->
+                items(state.categories, key = { "category-${it.name}" }) { category ->
                     TvActionButton(
-                        text = name,
+                        text = category.name.ifBlank { uncategorised },
                         icon = Icons.Rounded.Category,
-                        selected = category == name,
-                        onClick = { category = name },
+                        selected = state.selectedCategory == category.name,
+                        onClick = { onSelectCategory(category.name) },
                     )
                 }
             }

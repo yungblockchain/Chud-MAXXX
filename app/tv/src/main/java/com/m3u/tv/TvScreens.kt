@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Category
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
@@ -86,6 +87,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -150,6 +152,8 @@ fun TvBrowsePane(
     onUpdateProviderSetting: (String, String?) -> Unit,
     onSubmitProviderSubscription: () -> Unit,
     continueWatching: List<Channel> = emptyList(),
+    onSelectCategory: (String?) -> Unit = {},
+    onSearch: (String) -> Unit = {},
     guideContent: @Composable () -> Unit = {},
     dialSettingsContent: @Composable () -> Unit = {},
 ) {
@@ -182,7 +186,9 @@ fun TvBrowsePane(
                     state = state,
                     onPlaylist = onPlaylist,
                     onRefresh = onRefresh,
-                    onPlay = onPlay
+                    onPlay = onPlay,
+                    onSelectCategory = onSelectCategory,
+                    onSearch = onSearch,
                 )
 
                 TvDestination.Favorites -> ChannelGridScreen(
@@ -558,8 +564,11 @@ private fun LibraryScreen(
     state: TvUiState,
     onPlaylist: (Playlist) -> Unit,
     onRefresh: () -> Unit,
-    onPlay: (Channel) -> Unit
+    onPlay: (Channel) -> Unit,
+    onSelectCategory: (String?) -> Unit,
+    onSearch: (String) -> Unit,
 ) {
+    val searchActive = state.searchQuery.trim().length >= 2
     val playlistFocusRequester = remember { FocusRequester() }
     val focusTarget = state.selectedPlaylist ?: state.playlists.firstOrNull()
     var initialFocusRequested by remember { mutableStateOf(false) }
@@ -603,6 +612,47 @@ private fun LibraryScreen(
             }
         }
 
+        // Search across every playlist: with 130k films, browsing alone doesn't cut it.
+        item(key = "search") {
+            Box(Modifier.widthIn(max = 640.dp)) {
+                DialTextField(
+                    label = stringResource(R.string.dial_library_search_label),
+                    value = state.searchQuery,
+                    onValueChange = onSearch,
+                    placeholder = stringResource(R.string.dial_library_search_placeholder),
+                    keyboardType = KeyboardType.Text,
+                    imeAction = ImeAction.Done,
+                    readOnly = false,
+                )
+            }
+        }
+
+        if (searchActive) {
+            item(key = "search-status") {
+                val query = state.searchQuery.trim()
+                Text(
+                    text = when {
+                        state.searching -> stringResource(R.string.dial_library_searching)
+                        state.searchResults.isEmpty() ->
+                            stringResource(R.string.dial_library_search_none, query)
+                        else -> stringResource(R.string.dial_library_search_results, query)
+                    },
+                    color = TvColors.TextSecondary,
+                    fontSize = 16.sp,
+                    fontFamily = TvFonts.Body,
+                    maxLines = 2,
+                )
+            }
+            item(key = "search-results") {
+                ChannelGrid(
+                    channels = state.searchResults,
+                    onPlay = onPlay,
+                    modifier = Modifier.height(620.dp)
+                )
+            }
+            return@LazyColumn
+        }
+
         item {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -638,11 +688,58 @@ private fun LibraryScreen(
             }
         }
 
+        if (state.categories.size > 1) {
+            item(key = "categories") {
+                CategoryChips(state = state, onSelectCategory = onSelectCategory)
+            }
+        }
+
         item {
             ChannelGrid(
                 channels = state.channels,
                 onPlay = onPlay,
                 modifier = Modifier.height(620.dp)
+            )
+        }
+    }
+}
+
+/**
+ * The selected playlist's categories with how many entries each holds. "All" is left out for
+ * playlists too big to show at once; they open on their first category instead.
+ */
+@Composable
+internal fun CategoryChips(
+    state: TvUiState,
+    onSelectCategory: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val uncategorised = stringResource(R.string.dial_category_uncategorised)
+    val total = remember(state.categories) { state.categories.sumOf { it.count } }
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier.focusGroup()
+    ) {
+        if (state.allCategoriesAllowed) {
+            item(key = "all") {
+                TvActionButton(
+                    text = stringResource(R.string.dial_category_all, total),
+                    icon = Icons.Rounded.Category,
+                    selected = state.selectedCategory == null,
+                    onClick = { onSelectCategory(null) },
+                )
+            }
+        }
+        items(state.categories, key = { "category-${it.name}" }) { category ->
+            TvActionButton(
+                text = stringResource(
+                    R.string.dial_category_chip,
+                    category.name.ifBlank { uncategorised },
+                    category.count,
+                ),
+                icon = Icons.Rounded.Category,
+                selected = state.selectedCategory == category.name,
+                onClick = { onSelectCategory(category.name) },
             )
         }
     }

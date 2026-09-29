@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -210,7 +211,8 @@ enum class XtreamSignInError {
 sealed interface XtreamSignInPhase {
     data object Idle : XtreamSignInPhase
     data object Checking : XtreamSignInPhase
-    data object Importing : XtreamSignInPhase
+    /** Channels, films and series downloaded so far ([count] is 0 until the first batch). */
+    data class Importing(val count: Int = 0) : XtreamSignInPhase
     data object Done : XtreamSignInPhase
     data class Failed(
         val error: XtreamSignInError,
@@ -228,7 +230,7 @@ data class XtreamSignInForm(
     val phase: XtreamSignInPhase = XtreamSignInPhase.Idle,
 ) {
     val busy: Boolean
-        get() = phase == XtreamSignInPhase.Checking || phase == XtreamSignInPhase.Importing
+        get() = phase == XtreamSignInPhase.Checking || phase is XtreamSignInPhase.Importing
 }
 
 @Immutable
@@ -341,11 +343,24 @@ class XtreamAccountViewModel @Inject constructor(
             fail(XtreamSignInError.ImportFailed)
             return
         }
-        _form.update { it.copy(phase = XtreamSignInPhase.Importing) }
+        _form.update { it.copy(phase = XtreamSignInPhase.Importing()) }
         _statuses.update { it + (accountKey(credentials) to status) }
 
         val finished = workManager
             .getWorkInfoByIdFlow(workId)
+            .onEach { info ->
+                // Big providers take minutes; show how far the download has got.
+                val count = info?.progress?.getInt(SubscriptionWorker.PROGRESS_INT_COUNT, 0) ?: 0
+                if (count > 0 && info?.state?.isFinished == false) {
+                    _form.update { form ->
+                        if (form.phase is XtreamSignInPhase.Importing) {
+                            form.copy(phase = XtreamSignInPhase.Importing(count))
+                        } else {
+                            form
+                        }
+                    }
+                }
+            }
             .first { info -> info == null || info.state.isFinished }
         if (finished == null || finished.state == WorkInfo.State.SUCCEEDED) {
             // Keep the server so adding a second login on the same panel is quick.
@@ -353,7 +368,10 @@ class XtreamAccountViewModel @Inject constructor(
                 XtreamSignInForm(server = it.server, phase = XtreamSignInPhase.Done)
             }
         } else {
-            fail(XtreamSignInError.ImportFailed)
+            fail(
+                XtreamSignInError.ImportFailed,
+                detail = finished.outputData.getString(SubscriptionWorker.OUTPUT_STRING_ERROR),
+            )
         }
     }
 

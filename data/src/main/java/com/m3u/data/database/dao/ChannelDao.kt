@@ -10,6 +10,7 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import com.m3u.data.database.model.AdjacentChannels
 import com.m3u.data.database.model.Channel
+import com.m3u.data.database.model.ChannelCategoryCount
 import com.m3u.data.database.model.ChannelMetadataBase
 import com.m3u.data.database.model.ExtensionChannelMetadataOverlay
 import kotlinx.coroutines.flow.Flow
@@ -265,6 +266,57 @@ interface ChannelDao {
 
     @Query("SELECT * FROM streams WHERE playlist_url = :playlistUrl")
     suspend fun getByPlaylistUrl(playlistUrl: String): List<Channel>
+
+    // Category-at-a-time reads, so a provider with 50k channels or 130k films never has to be
+    // held in memory all at once.
+    @Query(
+        """
+        SELECT `group` AS name, COUNT(*) AS count, MIN(id) AS first_id
+        FROM streams
+        WHERE playlist_url = :playlistUrl AND hidden = 0
+        GROUP BY `group`
+        ORDER BY first_id
+        """
+    )
+    suspend fun getCategoryCounts(playlistUrl: String): List<ChannelCategoryCount>
+
+    @Query("SELECT * FROM streams WHERE playlist_url = :playlistUrl AND hidden = 0 ORDER BY id")
+    suspend fun getUnhiddenInProviderOrder(playlistUrl: String): List<Channel>
+
+    @Query(
+        "SELECT * FROM streams WHERE playlist_url = :playlistUrl AND hidden = 0 " +
+            "ORDER BY title COLLATE NOCASE, id"
+    )
+    suspend fun getUnhiddenByTitle(playlistUrl: String): List<Channel>
+
+    @Query(
+        "SELECT * FROM streams WHERE playlist_url = :playlistUrl AND hidden = 0 " +
+            "AND `group` = :category ORDER BY id"
+    )
+    suspend fun getUnhiddenInCategoryInProviderOrder(
+        playlistUrl: String,
+        category: String,
+    ): List<Channel>
+
+    @Query(
+        "SELECT * FROM streams WHERE playlist_url = :playlistUrl AND hidden = 0 " +
+            "AND `group` = :category ORDER BY title COLLATE NOCASE, id"
+    )
+    suspend fun getUnhiddenInCategoryByTitle(
+        playlistUrl: String,
+        category: String,
+    ): List<Channel>
+
+    /** Titles containing [query], the ones that start with it first, at most [limit]. */
+    @Query(
+        """
+        SELECT * FROM streams
+        WHERE hidden = 0 AND title LIKE '%' || :query || '%'
+        ORDER BY CASE WHEN title LIKE :query || '%' THEN 0 ELSE 1 END, length(title), id
+        LIMIT :limit
+        """
+    )
+    suspend fun searchUnhidden(query: String, limit: Int): List<Channel>
 
     @Query(
         """

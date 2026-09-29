@@ -12,9 +12,11 @@ import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
 import io.ktor.server.response.respondText
+import io.ktor.server.response.respondTextWriter
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -469,7 +471,38 @@ internal fun Application.mockServerModule() {
             }
 
             val baseUrl = call.baseUrl()
-            val payload = when (call.request.queryParameters["action"]) {
+            val action = call.request.queryParameters["action"]
+            if (auth.big) {
+                val jsonType = ContentType.Application.Json
+                when (action) {
+                    "get_live_categories" -> {
+                        call.respondText(BigCatalogue.liveCategories(), jsonType)
+                        return@get
+                    }
+                    "get_vod_categories" -> {
+                        call.respondText(BigCatalogue.vodCategories(), jsonType)
+                        return@get
+                    }
+                    "get_series_categories" -> {
+                        call.respondText(BigCatalogue.seriesCategories(), jsonType)
+                        return@get
+                    }
+                    "get_live_streams" -> {
+                        call.respondTextWriter(jsonType) { BigCatalogue.writeLive(this, baseUrl) }
+                        return@get
+                    }
+                    "get_vod_streams" -> {
+                        delay(BigCatalogue.VOD_FIRST_BYTE_DELAY_MS)
+                        call.respondTextWriter(jsonType) { BigCatalogue.writeVod(this, baseUrl) }
+                        return@get
+                    }
+                    "get_series" -> {
+                        call.respondTextWriter(jsonType) { BigCatalogue.writeSeries(this, baseUrl) }
+                        return@get
+                    }
+                }
+            }
+            val payload = when (action) {
                 null -> xtreamInfo(baseUrl)
                 "get_live_categories" -> liveCategories()
                 "get_live_streams" -> liveStreams(baseUrl)
@@ -519,7 +552,7 @@ private data class ServerOptions(
     }
 }
 
-private data class XtreamAuth(val valid: Boolean)
+private data class XtreamAuth(val valid: Boolean, val big: Boolean = false)
 
 private data class ReferenceSession(
     val itemId: String,
@@ -531,7 +564,11 @@ private data class ReferenceSession(
 private fun io.ktor.server.application.ApplicationCall.xtreamAuth(): XtreamAuth {
     val username = parameters["username"] ?: request.queryParameters["username"]
     val password = parameters["password"] ?: request.queryParameters["password"]
-    return XtreamAuth(username == DEFAULT_USERNAME && password == DEFAULT_PASSWORD)
+    val big = username == BIG_USERNAME && password == BIG_PASSWORD
+    return XtreamAuth(
+        valid = big || (username == DEFAULT_USERNAME && password == DEFAULT_PASSWORD),
+        big = big,
+    )
 }
 
 private fun io.ktor.server.application.ApplicationCall.baseUrl(): String {
@@ -837,6 +874,9 @@ private val epgTitles = mapOf(
     1003 to listOf("Cartoon Club", "Space Pals", "Science Lab", "Story Time", "Puzzle Quest"),
 )
 
+/** Schedule for the "big" account's channels. */
+private val bigEpgTitles = listOf("Breakfast Show", "Headlines", "Live Match", "Film Club", "Late Talk", "Documentary")
+
 /** Programme lengths in minutes, cycled so the guide shows blocks of different widths. */
 private val epgLengths = listOf(30, 60, 30, 90, 60)
 
@@ -846,7 +886,8 @@ private val epgLengths = listOf(30, 60, 30, 90, 60)
  * programmes are marked as replayable. [limit] keeps only the current and next ones.
  */
 private fun epgListings(streamId: Int?, limit: Int?): JsonObject {
-    val titles = epgTitles[streamId].orEmpty()
+    val titles = epgTitles[streamId]
+        ?: if (BigCatalogue.isBigLiveStream(streamId)) bigEpgTitles else emptyList()
     val nowSeconds = System.currentTimeMillis() / 1000
     val hour = 3600L
     val firstStart = nowSeconds - nowSeconds % hour - 3 * hour

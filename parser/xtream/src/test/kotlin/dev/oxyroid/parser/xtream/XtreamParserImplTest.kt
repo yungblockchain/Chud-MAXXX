@@ -99,4 +99,37 @@ class XtreamParserImplTest {
     private fun <T> runBlockingOrThrow(block: suspend () -> T): T {
         return kotlinx.coroutines.runBlocking { block() }
     }
+
+    @Test
+    fun parse_shouldSkipMalformedEntriesInsteadOfFailingTheCatalogue() {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                [
+                  {"name": "Film A", "stream_id": 2001, "category_id": 5},
+                  {"name": "Broken id", "stream_id": "", "category_id": 5},
+                  {"name": "Too big", "stream_id": 99999999999, "category_id": 5},
+                  {"name": "Film B", "stream_id": "2002", "category_id": "5"}
+                ]
+                """.trimIndent()
+            )
+        )
+        server.start()
+        try {
+            val parser = XtreamParserImpl(OkHttpClient())
+            val input = XtreamInput(
+                basicUrl = server.url("/").toString().removeSuffix("/"),
+                username = "demo",
+                password = "pwd",
+                type = XtreamInput.TYPE_VOD,
+            )
+
+            val parsed = parser.parse(input).toList().map { it as XtreamVod }
+            assertEquals(listOf("Film A", "Film B"), parsed.map { it.name })
+            assertEquals(listOf(2001, 2002), parsed.map { it.streamId })
+        } finally {
+            server.shutdown()
+        }
+    }
 }

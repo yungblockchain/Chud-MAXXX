@@ -68,6 +68,14 @@ jobs:
             echo "::warning::No DIAL_KEYSTORE_BASE64 secret. This APK uses a one-off debug key, so to update CHUD STREAMS on the Fire TV you'll need to uninstall the old version first."
           fi
 
+      # Parser and test-server unit tests (quick, and they guard catalogue decoding).
+      - name: Unit tests
+        shell: bash
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew :parser:xtream:test :parser:m3u:test --console=plain 2>&1 | tee build.log
+
       - name: Build release APK
         shell: bash
         env:
@@ -105,7 +113,7 @@ jobs:
                           break
                       add(follow)
           # Compiler, resource and annotation-processor errors.
-          patterns = (r"^e: ", r"^w: .*(unresolved|type mismatch)", r"error:", r"^ERROR:", r"AAPT: error", r"^> Task .*FAILED")
+          patterns = (r"^e: ", r"^w: .*(unresolved|type mismatch)", r"error:", r"^ERROR:", r"AAPT: error", r"^> Task .*FAILED", r"FAILED$", r"Exception", r"expected:")
           for line in lines:
               if any(re.search(p, line) for p in patterns):
                   add(line)

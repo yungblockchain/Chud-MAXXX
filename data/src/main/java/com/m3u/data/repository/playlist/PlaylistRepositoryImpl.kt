@@ -94,8 +94,10 @@ import javax.inject.Inject
 
 private const val BUFFER_M3U_CAPACITY = 500
 private const val BUFFER_XTREAM_CAPACITY = 100
-private const val MAX_STAGED_CHANNELS = 200_000
-private const val MAX_STAGED_CHANNEL_BYTES = 256L * 1024L * 1024L
+// Big Xtream providers carry 50k live channels plus 130k+ films and 20k+ series, so the
+// staging limits leave room for about a million entries.
+private const val MAX_STAGED_CHANNELS = 1_000_000
+private const val MAX_STAGED_CHANNEL_BYTES = 1024L * 1024L * 1024L
 private const val MAX_STAGED_CHANNEL_RECORD_BYTES = 1024 * 1024
 private const val BUFFER_RESTORE_CAPACITY = 400
 private const val MAX_RESTORED_PROVIDER_ACCOUNTS = 256

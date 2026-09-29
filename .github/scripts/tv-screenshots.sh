@@ -59,6 +59,7 @@ type_text() {
 }
 # Sign in to the test Xtream server the workflow starts on the runner (the emulator reaches the
 # runner at 10.0.2.2). Returns 1 if that server isn't running.
+#   usage: sign_in <username> <password> <screenshot-prefix>
 sign_in() {
     if ! curl -sf http://127.0.0.1:8080/health >/dev/null; then
         echo "No test Xtream server, so the signed-in screens are skipped."
@@ -67,16 +68,16 @@ sign_in() {
     open_tab account 8
     type_text "http://10.0.2.2:8080"
     press $DOWN; hide_keyboard
-    type_text "m3u"
+    type_text "$1"
     press $DOWN; hide_keyboard
-    type_text "m3u"
-    shot 17-sign-in-filled
+    type_text "$2"
+    shot "$3-sign-in-filled"
     # Past the optional name field to the Sign in button.
     press $DOWN; hide_keyboard
     press $DOWN; hide_keyboard
     press $OK
     sleep 25
-    shot 18-signed-in
+    shot "$3-signed-in"
     # The account check and the channel import are separate steps; flag a failed import.
     if adb logcat -d | grep -q "Worker result FAILURE .*SubscriptionWorker"; then
         echo "::error title=Playlist import failed on API $API::Signed in to the test server, but loading its channels failed. See logcat-api$API.txt."
@@ -85,6 +86,8 @@ sign_in() {
 
 adb install -r chud-streams.apk || { echo "::error::Install failed on API $API"; exit 0; }
 adb logcat -c
+# Room for a long session's worth of log (the big import is chatty).
+adb logcat -G 16M || true
 adb shell am start -n "$PKG/$ACTIVITY"
 sleep 1.6; shot 01-launch-logo
 sleep 7;   shot 02-first-screen
@@ -122,7 +125,7 @@ if check "launch"; then
     check "settings and guide"
 
     # Signed in to the test server: home, library, the timeline guide and the account list.
-    if sign_in && check "sign-in"; then
+    if sign_in m3u m3u 17 && check "sign-in"; then
         open_tab home 10;     shot 19-home
         open_tab library 10;  shot 20-library
         open_tab guide 12;    shot 21-guide
@@ -131,13 +134,54 @@ if check "launch"; then
         open_tab account 8;   shot 24-account
     fi
     check "walkthrough"
+
+    # A provider-sized account: 50k channels, 130k films (some malformed, slow to start), 20k
+    # series. Start from a clean app, sign in, and wait for the import to finish.
+    if curl -sf http://127.0.0.1:8080/health >/dev/null; then
+        adb shell pm clear "$PKG" >/dev/null
+        count_results() { adb logcat -d | grep -c "Worker result $1 .*SubscriptionWorker"; }
+        successes=$(count_results SUCCESS)
+        failures=$(count_results FAILURE)
+        started=$(date +%s)
+        if sign_in big big 30 && check "big sign-in"; then
+            result=""
+            for _ in $(seq 1 120); do
+                if [ "$(count_results SUCCESS)" -gt "$successes" ]; then result=ok; break; fi
+                if [ "$(count_results FAILURE)" -gt "$failures" ]; then result=failed; break; fi
+                if ! alive; then result=died; break; fi
+                sleep 5
+            done
+            seconds=$(( $(date +%s) - started ))
+            shot 31-big-after-import
+            case "$result" in
+                ok) echo "::notice title=Big account on API $API::50k channels, 130k films and 20k series loaded in ${seconds}s." ;;
+                failed) echo "::error title=Big account import failed on API $API::See logcat-api$API.txt (SubscriptionWorker)." ;;
+                died) echo "::error title=App died during the big import on API $API::See logcat-api$API.txt." ;;
+                *) echo "::error title=Big account import still running on API $API::Not finished after ${seconds}s." ;;
+            esac
+            if [ "$result" = ok ]; then
+                # Library: the film playlist opens on its first category; then search all titles.
+                open_tab library 12; shot 32-big-library
+                press $RIGHT $RIGHT $OK; sleep 6; shot 33-big-films
+                press $DOWN; hide_keyboard
+                type_text "Film 12345"
+                sleep 4; shot 34-big-search
+                open_tab guide 14;   shot 35-big-guide
+                open_tab home 10;    shot 36-big-home
+            fi
+            if adb logcat -d | grep -q "OutOfMemoryError"; then
+                echo "::error title=Out of memory on API $API::The big account ran the app out of memory."
+            fi
+        fi
+    fi
 fi
 
 adb logcat -d > "$OUT/logcat-api$API.txt"
 adb logcat -d -b crash > "$OUT/crash-api$API.txt" 2>/dev/null || true
 # Keep the crash itself easy to read in the run summary.
-if grep -q "FATAL EXCEPTION" "$OUT/logcat-api$API.txt"; then
-    grep -A 40 "FATAL EXCEPTION" "$OUT/logcat-api$API.txt" | head -60 > "$OUT/crash-summary-api$API.txt"
+# Only this app's crashes count (the emulator's own TV apps crash now and then).
+if grep -q "Process: $PKG, PID" "$OUT/logcat-api$API.txt"; then
+    grep -B 1 -A 40 "Process: $PKG, PID" "$OUT/logcat-api$API.txt" | head -60 > "$OUT/crash-summary-api$API.txt"
     python3 - "$OUT/crash-summary-api$API.txt" "$API" <<'PY'
 import sys
 text = open(sys.argv[1], encoding="utf-8", errors="replace").read()

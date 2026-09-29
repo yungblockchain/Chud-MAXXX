@@ -6,9 +6,11 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.database.sqlite.SQLiteFullException
 import android.graphics.Color
 import android.graphics.drawable.Icon
 import android.net.Uri
+import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -34,6 +36,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.onEach
+import java.io.IOException
+import java.io.InterruptedIOException
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.UUID
 
@@ -108,12 +112,7 @@ class SubscriptionWorker @AssistedInject constructor(
                             var total = 0
                             playlistRepository.m3uOrThrow(title, url) { count ->
                                 total = count
-                                val notification = createN10nBuilder()
-                                    .setContentText(findChannelProgressContentText(count))
-                                    .setActions(cancelAction)
-                                    .setOngoing(true)
-                                    .build()
-                                notificationManager.notify(notificationId, notification)
+                                reportProgress(count, ongoing = true)
                             }
 
                             createN10nBuilder()
@@ -125,7 +124,7 @@ class SubscriptionWorker @AssistedInject constructor(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
-                        throw error
+                        reportFailure("M3U import", error)
                     }
                 }
             }
@@ -150,12 +149,7 @@ class SubscriptionWorker @AssistedInject constructor(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (e: Exception) {
-                    createN10nBuilder()
-                        .setContentText(context.getString(string.ui_error_unknown))
-                        .setActions(retryAction)
-                        .setColor(Color.RED)
-                        .buildThenNotify()
-                    Result.failure()
+                    reportFailure("EPG import", e)
                 }
             }
 
@@ -194,11 +188,7 @@ class SubscriptionWorker @AssistedInject constructor(
                             effectiveTitle, basicUrl, username, password, type
                         ) { count ->
                             total = count
-                            val notification = createN10nBuilder()
-                                .setContentText(findChannelProgressContentText(count))
-                                .setActions(cancelAction)
-                                .build()
-                            notificationManager.notify(notificationId, notification)
+                            reportProgress(count, ongoing = false)
                         }
                         createN10nBuilder()
                             .setContentText(findCompleteContentText(total))
@@ -207,12 +197,7 @@ class SubscriptionWorker @AssistedInject constructor(
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (e: Exception) {
-                            createN10nBuilder()
-                                .setContentText(context.getString(string.ui_error_unknown))
-                                .setActions(retryAction)
-                                .setColor(Color.RED)
-                                .buildThenNotify()
-                            Result.failure()
+                            reportFailure("Xtream import", e)
                         }
                     }
                 }
@@ -223,6 +208,39 @@ class SubscriptionWorker @AssistedInject constructor(
                 Result.failure()
             }
         }
+    }
+
+    private var lastProgressAt = 0L
+
+    /**
+     * Progress for the notification and for the TV sign-in screen ([PROGRESS_INT_COUNT]). A big
+     * provider reports every 100 entries, so updates are held to about one a second.
+     */
+    private fun reportProgress(count: Int, ongoing: Boolean) {
+        val now = System.currentTimeMillis()
+        if (now - lastProgressAt < PROGRESS_INTERVAL_MS) return
+        lastProgressAt = now
+        val notification = createN10nBuilder()
+            .setContentText(findChannelProgressContentText(count))
+            .setActions(cancelAction)
+            .setOngoing(ongoing)
+            .build()
+        notificationManager.notify(notificationId, notification)
+        setProgressAsync(workDataOf(PROGRESS_INT_COUNT to count))
+    }
+
+    /**
+     * Logs why an import failed, shows the retry notification, and hands the TV sign-in screen
+     * a short reason code ([OUTPUT_STRING_ERROR]) so it can say more than "it failed".
+     */
+    private fun reportFailure(what: String, error: Exception): Result {
+        Log.w(LOG_TAG, "$what failed", error)
+        createN10nBuilder()
+            .setContentText(context.getString(string.ui_error_unknown))
+            .setActions(retryAction)
+            .setColor(Color.RED)
+            .buildThenNotify()
+        return Result.failure(workDataOf(OUTPUT_STRING_ERROR to failureReason(error)))
     }
 
     private fun createChannel() {
@@ -316,6 +334,32 @@ class SubscriptionWorker @AssistedInject constructor(
         private const val INPUT_STRING_PASSWORD = "password"
         private const val INPUT_STRING_DATA_SOURCE_VALUE = "data-source"
         const val TAG = "subscription"
+        private const val LOG_TAG = "SubscriptionWorker"
+
+        /** Progress of a running import: entries downloaded so far. */
+        const val PROGRESS_INT_COUNT = "count"
+        private const val PROGRESS_INTERVAL_MS = 1_000L
+
+        /** Output of a failed import: one of the FAILURE_* codes below. */
+        const val OUTPUT_STRING_ERROR = "error"
+        const val FAILURE_TIMEOUT = "timeout"
+        const val FAILURE_NETWORK = "network"
+        const val FAILURE_STORAGE = "storage"
+        const val FAILURE_TOO_LARGE = "too_large"
+        const val FAILURE_OTHER = "other"
+
+        internal fun failureReason(error: Throwable): String {
+            val causes = generateSequence(error) { it.cause }.take(8).toList()
+            val text = causes.joinToString(" ") { "${it.javaClass.simpleName} ${it.message.orEmpty()}" }
+            return when {
+                causes.any { it is InterruptedIOException } -> FAILURE_TIMEOUT
+                causes.any { it is SQLiteFullException } ||
+                    "ENOSPC" in text || "No space left" in text -> FAILURE_STORAGE
+                "too many records" in text || "size limit" in text -> FAILURE_TOO_LARGE
+                causes.any { it is IOException } -> FAILURE_NETWORK
+                else -> FAILURE_OTHER
+            }
+        }
 
         fun m3u(
             workManager: WorkManager,

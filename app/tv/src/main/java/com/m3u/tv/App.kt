@@ -235,11 +235,14 @@ fun App(
                     onUpdateProviderSetting = viewModel::updateProviderSetting,
                     onSubmitProviderSubscription = viewModel::submitProviderSubscription,
                     continueWatching = continueWatching,
+                    onSelectCategory = viewModel::selectCategory,
+                    onSearch = viewModel::search,
                     guideContent = {
                         GuideScreen(
                             state = state,
                             dial = dial,
                             onSelectPlaylist = viewModel::selectPlaylist,
+                            onSelectCategory = viewModel::selectCategory,
                             onPlayLive = { channel ->
                                 viewModel.play(channel)
                                 surface = TvSurface.Player
