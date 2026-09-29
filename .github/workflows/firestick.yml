@@ -22,6 +22,8 @@ on:
       - "**.md"
       - "mac/**"
       - ".github/workflows/mac.yml"
+      - ".github/workflows/tv-screenshots.yml"
+      - ".github/scripts/**"
 
 permissions:
   contents: read
