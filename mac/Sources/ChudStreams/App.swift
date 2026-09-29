@@ -187,6 +187,14 @@ struct RootView: View {
         .animation(Motion.page, value: model.person)
         .animation(Motion.fade, value: model.notice)
         .animation(Motion.quick, value: model.section)
+        // GitHub's test Mac has no real display, so animations there never finish; the
+        // screenshot tour runs without them.
+        .transaction { transaction in
+            if TourRunner.isRunning {
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
+        }
         .onAppear { TourRunner.startIfRequested(model: model) }
     }
 }

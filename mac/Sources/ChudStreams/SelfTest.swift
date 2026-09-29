@@ -110,6 +110,7 @@ enum SelfTest {
         var flip: Int32 = 0
         let deadline = Date().addingTimeInterval(40)
         var renders = 0
+        var goodFrame = false
         while Date() < deadline {
             while let event = mpv_wait_event(handle, 0.02), event.pointee.event_id != MPV_EVENT_NONE {
                 switch event.pointee.event_id {
@@ -152,8 +153,18 @@ enum SelfTest {
             }
             var position = 0.0
             mpv_get_property(handle, "time-pos", MPV_FORMAT_DOUBLE, &position)
-            // Keep going a little past the start: the first frames of a TS stream can be partial.
-            if fileLoaded && position > 2.5 && renders > 40 { break }
+            // Stop at the first good frame once playback is under way (early frames of a TS
+            // stream can be partial, and the build machine is slow).
+            if fileLoaded && position > 0.8 && renders % 3 == 0 {
+                let (share, colours) = pictureStats(framebuffer: framebuffer, width: width, height: height)
+                if share > 0.3 && colours > 20 {
+                    goodFrame = true
+                    break
+                }
+            }
+            var eof: Int32 = 0
+            mpv_get_property(handle, "eof-reached", MPV_FORMAT_FLAG, &eof)
+            if eof != 0 { break }
         }
         if let failure {
             log("playback failed: \(failure)")
@@ -198,6 +209,21 @@ enum SelfTest {
         mpv_terminate_destroy(handle)
         CGLSetCurrentContext(nil)
         CGLReleaseContext(context)
-        return renders > 5 && share > 0.3 && distinct.count > 20
+        return goodFrame || (renders > 5 && share > 0.3 && distinct.count > 20)
+    }
+
+    /// Share of lit pixels and number of distinct colours in the offscreen framebuffer.
+    private static func pictureStats(framebuffer: GLuint, width: GLsizei, height: GLsizei) -> (Double, Int) {
+        var pixels = [UInt8](repeating: 0, count: Int(width * height * 4))
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), framebuffer)
+        glReadPixels(0, 0, width, height, GLenum(GL_RGBA), GLenum(GL_UNSIGNED_BYTE), &pixels)
+        var lit = 0
+        var distinct = Set<UInt32>()
+        for index in stride(from: 0, to: pixels.count, by: 4) {
+            let r = pixels[index], g = pixels[index + 1], b = pixels[index + 2]
+            if Int(r) + Int(g) + Int(b) > 60 { lit += 1 }
+            if distinct.count < 5000 { distinct.insert(UInt32(r) << 16 | UInt32(g) << 8 | UInt32(b)) }
+        }
+        return (Double(lit) / Double(width * height), distinct.count)
     }
 }

@@ -15,6 +15,7 @@ enum TourRunner {
     private static var server = "http://127.0.0.1:8080"
     private static var checks: [String: String] = [:]
     private static var failures: [String] = []
+    private static var demoFilm: MediaItem? = nil
 
     static func startIfRequested(model: AppModel) {
         guard let folder = ProcessInfo.processInfo.environment["CHUD_TOUR"], !started else { return }
@@ -98,7 +99,8 @@ enum TourRunner {
         shot("05-series")
 
         // A film's page (TMDB and Trakt come from the test server).
-        if let film = catalog.all(.movie).first(where: { $0.name.lowercased().contains("neon") }) ?? catalog.all(.movie).first {
+        demoFilm = catalog.all(.movie).first(where: { $0.name.lowercased().contains("neon") }) ?? catalog.all(.movie).first
+        if let film = demoFilm {
             model.open(film)
             await wait(5)
             shot("06-film-details")
@@ -166,6 +168,10 @@ enum TourRunner {
         await go(model, .search, settle: 4)
         shot("16-search")
         await go(model, .claude, settle: 2)
+        ClaudeChatModel.shared.send("Pick me a film for tonight", app: model)
+        let answered = await waitFor(25) { ClaudeChatModel.shared.messages.count >= 2 && !ClaudeChatModel.shared.thinking }
+        check("ask-claude", answered, "\(ClaudeChatModel.shared.messages.count) messages")
+        await wait(1)
         shot("17-ask-claude")
         await go(model, .markets, settle: 10)
         shot("18-markets")
@@ -211,6 +217,23 @@ enum TourRunner {
                 check("big-catalogue", false, error.localizedDescription)
             }
         }
+        await tryMetalRenderer(model)
+    }
+
+    /// The optional Metal renderer (gpu-next through MoltenVK), last because it's the riskiest.
+    private static func tryMetalRenderer(_ model: AppModel) async {
+        guard let film = demoFilm else { return }
+        var settings = PlaybackSettings.current
+        settings.renderer = .advanced
+        settings.save()
+        model.playMovie(film, containerExtension: film.containerExtension, fromStart: true)
+        let playing = await waitFor(25) { model.playback.player?.loaded == true && (model.playback.player?.position ?? 0) > 0.5 }
+        check("metal-renderer", playing, "Metal player \(model.playback.player?.usesMetal == true ? "started" : "not used"), position \(String(format: "%.1f", model.playback.player?.position ?? 0))s")
+        await wait(1.5)
+        shot("24-player-metal")
+        model.playback.stop()
+        settings.renderer = .standard
+        settings.save()
     }
 
     private static func finish() {
