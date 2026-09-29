@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccountCircle
@@ -43,9 +44,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -143,7 +146,9 @@ fun CatalogScreen(
     val kindTitle = kind.title()
     val categoryLabel = state.selectedCategory?.ifBlank { uncategorised } ?: allLabel
 
-    val selectedCategoryFocus = remember { FocusRequester() }
+    // One focus requester per category row, kept for the row's lifetime (never handed from row to
+    // row), so "focus the category being shown" can find it.
+    val categoryFocus = remember { HashMap<CategoryPick, FocusRequester>() }
     val firstItemFocus = remember { FocusRequester() }
     val categoryListState = rememberLazyListState()
     val gridState = rememberLazyGridState()
@@ -175,7 +180,9 @@ fun CatalogScreen(
             ?: 0
         categoryListState.scrollToItem((index - 2).coerceAtLeast(0))
         withFrameNanos { }
-        runCatching { selectedCategoryFocus.requestFocus() }
+        categoryFocus[CategoryPick(state.selectedCategory)]?.let { requester ->
+            runCatching { requester.requestFocus() }
+        }
     }
     // OK on a category: into its first item once it has loaded (nothing, if it's empty).
     LaunchedEffect(enterTarget, loading, channels, state.selectedCategory) {
@@ -260,7 +267,7 @@ fun CatalogScreen(
                 total = total,
                 selectedCategory = state.selectedCategory,
                 listState = categoryListState,
-                selectedFocus = selectedCategoryFocus,
+                focusRequesters = categoryFocus,
                 onPreview = { pick ->
                     preview = pick
                     // Moving on to another category cancels a pending jump into the grid.
@@ -304,7 +311,7 @@ private fun CategoryList(
     total: Int,
     selectedCategory: String?,
     listState: LazyListState,
-    selectedFocus: FocusRequester,
+    focusRequesters: MutableMap<CategoryPick, FocusRequester>,
     onPreview: (CategoryPick) -> Unit,
     onOpen: (CategoryPick) -> Unit,
     modifier: Modifier = Modifier,
@@ -328,7 +335,7 @@ private fun CategoryList(
                     label = allLabel,
                     count = total,
                     selected = selectedCategory == null,
-                    focusRequester = selectedFocus.takeIf { selectedCategory == null },
+                    focusRequester = focusRequesters.getOrPut(pick) { FocusRequester() },
                     onFocus = { onPreview(pick) },
                     onClick = { onOpen(pick) },
                     onLongClick = null,
@@ -336,10 +343,9 @@ private fun CategoryList(
             }
         }
         items(categories, key = { "category-${it.name}" }) { category ->
-            val own = remember { FocusRequester() }
-            val isSelected = category.name == selectedCategory
-            val requester = if (isSelected) selectedFocus else own
             val pick = CategoryPick(category.name)
+            val isSelected = category.name == selectedCategory
+            val requester = focusRequesters.getOrPut(pick) { FocusRequester() }
             CategoryRow(
                 label = category.name.ifBlank { uncategorised },
                 count = category.count,
@@ -364,11 +370,12 @@ private fun CategoryRow(
     onLongClick: (() -> Unit)?,
 ) {
     val countText = remember(count) { NumberFormat.getIntegerInstance().format(count) }
+    // The category being shown is marked inside the row (a tint and a bar on its edge), so the
+    // frame itself only ever changes for focus.
     FocusFrame(
         onClick = onClick,
         onLongClick = onLongClick,
         onFocus = onFocus,
-        selected = selected,
         selectionState = selected,
         focusRequester = focusRequester,
         focusedScale = 1.03f,
@@ -379,7 +386,16 @@ private fun CategoryRow(
             .fillMaxWidth()
             .heightIn(min = 46.dp)
     ) { focused ->
-        val active = focused || selected
+        if (selected && !focused) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .drawBehind {
+                        drawRect(TvColors.Focus.copy(alpha = SELECTED_TINT_ALPHA))
+                        drawRect(TvColors.Focus, size = Size(SELECTED_BAR_WIDTH.toPx(), size.height))
+                    }
+            )
+        }
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -390,7 +406,11 @@ private fun CategoryRow(
         ) {
             Text(
                 text = label,
-                color = if (active) TvColors.OnFocus else TvColors.TextPrimary,
+                color = when {
+                    focused -> TvColors.OnFocus
+                    selected -> TvColors.Focus
+                    else -> TvColors.TextPrimary
+                },
                 fontFamily = TvFonts.Body,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
@@ -400,7 +420,7 @@ private fun CategoryRow(
             )
             Text(
                 text = countText,
-                color = if (active) TvColors.OnFocus.copy(alpha = 0.72f) else TvColors.TextSecondary,
+                color = if (focused) TvColors.OnFocus.copy(alpha = 0.72f) else TvColors.TextSecondary,
                 fontFamily = TvFonts.Body,
                 fontSize = 13.sp,
                 maxLines = 1,
@@ -576,6 +596,10 @@ fun SearchScreen(
         val kinds = state.playlists.associate { it.url to it.catalogKind }
         state.searchResults.groupBy { kinds[it.playlistUrl] ?: CatalogKind.Live }
     }
+    // Down from the box goes to the first result.
+    val firstResultFocus = remember { FocusRequester() }
+    val firstKind = CatalogKind.entries.firstOrNull { groups[it].orEmpty().isNotEmpty() }
+        .takeIf { active }
 
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -603,6 +627,7 @@ fun SearchScreen(
                         imeAction = ImeAction.Done,
                         readOnly = false,
                         focusRequester = fieldFocus,
+                        downFocus = firstResultFocus.takeIf { firstKind != null },
                     )
                 }
             }
@@ -626,7 +651,12 @@ fun SearchScreen(
                 val matches = groups[kind].orEmpty()
                 if (matches.isNotEmpty()) {
                     item(key = "results-${kind.name}") {
-                        SearchResultRow(kind = kind, channels = matches, onPlay = onPlay)
+                        SearchResultRow(
+                            kind = kind,
+                            channels = matches,
+                            onPlay = onPlay,
+                            firstItemFocus = firstResultFocus.takeIf { kind == firstKind },
+                        )
                     }
                 }
             }
@@ -639,6 +669,7 @@ private fun SearchResultRow(
     kind: CatalogKind,
     channels: List<Channel>,
     onPlay: (Channel) -> Unit,
+    firstItemFocus: FocusRequester? = null,
 ) {
     val poster = kind != CatalogKind.Live
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -656,11 +687,12 @@ private fun SearchResultRow(
                 .focusRestorer()
                 .focusGroup()
         ) {
-            items(channels, key = { it.id }) { channel ->
+            itemsIndexed(channels, key = { _, channel -> channel.id }) { index, channel ->
                 CatalogTile(
                     channel = channel,
                     poster = poster,
                     onPlay = { onPlay(channel) },
+                    focusRequester = firstItemFocus.takeIf { index == 0 },
                     modifier = Modifier.width(if (poster) SEARCH_POSTER_WIDTH_DP.dp else SEARCH_LOGO_WIDTH_DP.dp)
                 )
             }
@@ -737,6 +769,8 @@ fun CatalogDoors(
 }
 
 private const val CATEGORY_PREVIEW_DELAY_MS = 450L
+private const val SELECTED_TINT_ALPHA = 0.16f
+private val SELECTED_BAR_WIDTH = 4.dp
 private const val CATEGORY_LIST_WIDTH_DP = 260
 private const val POSTER_MIN_WIDTH_DP = 118
 private const val LOGO_MIN_WIDTH_DP = 150

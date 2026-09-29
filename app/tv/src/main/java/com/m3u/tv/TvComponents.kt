@@ -55,8 +55,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -346,7 +344,7 @@ private fun RailItem(
 @Composable
 private fun TvDestination.label(): String = when (this) {
     TvDestination.Search -> stringResource(R.string.dial_nav_search)
-    TvDestination.Home -> stringResource(string.tv_home_title)
+    TvDestination.Home -> stringResource(R.string.dial_nav_home)
     TvDestination.Live -> stringResource(R.string.dial_nav_live)
     TvDestination.Films -> stringResource(R.string.dial_nav_films)
     TvDestination.Series -> stringResource(R.string.dial_nav_series)
@@ -469,11 +467,12 @@ fun FocusFrame(
         ?.let { width -> minOf(focusedScale, 1f + maxGrowPx / width) }
         ?: focusedScale
     // A short, even grow: quick enough to keep up with a held-down arrow key.
-    val scale by animateFloatAsState(
+    val scale = animateFloatAsState(
         targetValue = if (focused && enabled) grownScale.coerceAtLeast(1f) else 1f,
         animationSpec = tween(durationMillis = FOCUS_SCALE_MS, easing = FastOutSlowInEasing),
         label = "tv-focus-scale"
     )
+    val glow = focused && enabled && !transparent
     // Cyberpunk HUD look: every focusable surface gets two chamfered corners instead of the
     // rounded [shape] callers pass, a faint neon outline, and a cyan glow when focused.
     val hud = HudShape
@@ -481,15 +480,18 @@ fun FocusFrame(
         modifier = modifier
             .onSizeChanged { widthPx[0] = it.width.toFloat() }
             .zIndex(if (focused) 1f else 0f)
-            .scale(scale)
-            .shadow(
-                elevation = if (focused && enabled && !transparent) 18.dp else 0.dp,
-                shape = hud,
-                clip = false,
-                ambientColor = TvColors.Focus,
-                spotColor = TvColors.Focus,
-            )
-            .clip(hud)
+            // One layer for the grow, the glow and the chamfered clip. The size is read in the
+            // layer itself, so the grow animation redraws the layer without recomposing.
+            .graphicsLayer {
+                val grown = scale.value
+                scaleX = grown
+                scaleY = grown
+                shadowElevation = if (glow) FOCUS_GLOW.toPx() else 0f
+                shape = hud
+                clip = true
+                ambientShadowColor = TvColors.Focus
+                spotShadowColor = TvColors.Focus
+            }
             .background(
                 when {
                     transparent -> Color.Transparent
@@ -1015,6 +1017,9 @@ private class FrameShape {
 }
 
 private const val FOCUS_SCALE_MS = 130
+
+/** The neon glow under a focused frame. */
+private val FOCUS_GLOW = 18.dp
 
 /** The most a focused frame grows across its width (half on each side). */
 private val MAX_FOCUS_GROW = 28.dp

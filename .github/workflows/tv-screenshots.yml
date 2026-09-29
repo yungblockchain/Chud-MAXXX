@@ -16,6 +16,8 @@ on:
   workflow_run:
     workflows: [ "Build CHUD STREAMS for Fire TV" ]
     types: [ completed ]
+    # Only builds that published a release (main); branch builds are tested by hand with apk_run_id.
+    branches: [ "main", "master" ]
   push:
     branches: [ "main", "master" ]
     paths:

@@ -509,6 +509,7 @@
     <string name="dial_nav_films">Films</string>
     <string name="dial_nav_series">Series</string>
     <string name="dial_nav_search">Search</string>
+    <string name="dial_nav_home">Home</string>
     <string name="dial_catalog_all">All</string>
     <string name="dial_catalog_update">Update list</string>
     <string name="dial_catalog_loading">Loading…</string>

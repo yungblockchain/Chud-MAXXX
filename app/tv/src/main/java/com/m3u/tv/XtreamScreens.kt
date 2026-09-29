@@ -43,7 +43,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -372,6 +371,16 @@ internal fun DialTextField(
     val keyboard = LocalSoftwareKeyboardController.current
     var focused by remember { mutableStateOf(false) }
     var typing by remember { mutableStateOf(false) }
+    // Down (or "Next" on the keyboard): to [downFocus] when it's on screen, else the next thing
+    // below. A target that isn't on screen yet must never throw.
+    val moveDown: () -> Boolean = {
+        val target = downFocus
+        if (target != null && runCatching { target.requestFocus() }.isSuccess) {
+            true
+        } else {
+            focusManager.moveFocus(FocusDirection.Down)
+        }
+    }
     // The typing session starts a frame after the field stops being read-only; ask for the
     // keyboard once it exists.
     LaunchedEffect(typing) {
@@ -411,7 +420,7 @@ internal fun DialTextField(
                 onNext = {
                     // "Next" on the keyboard carries on typing in the field below.
                     KeyboardHandoff.pass()
-                    focusManager.moveFocus(FocusDirection.Down)
+                    moveDown()
                 },
                 onDone = {
                     keyboard?.hide()
@@ -428,7 +437,6 @@ internal fun DialTextField(
                 .fillMaxWidth()
                 .heightIn(min = 52.dp)
                 .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
-                .then(downFocus?.let { target -> Modifier.focusProperties { down = target } } ?: Modifier)
                 .onFocusChanged {
                     focused = it.isFocused
                     typing = it.isFocused && !readOnly && KeyboardHandoff.take()
@@ -439,7 +447,7 @@ internal fun DialTextField(
                     } else {
                         when (event.key) {
                             Key.DirectionUp -> focusManager.moveFocus(FocusDirection.Up)
-                            Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
+                            Key.DirectionDown -> moveDown()
                             Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> when {
                                 readOnly -> true
                                 !typing -> {
