@@ -631,13 +631,21 @@ final class MPVGLLayer: CAOpenGLLayer {
         MPVGLLayer.framesDrawn += 1
     }
 
-    /// mpv has a new frame (or needs a redraw).
+    /// mpv has a new frame (or needs a redraw). Drawn straight away, as IINA does: waiting for
+    /// Core Animation's next redraw can stall mpv, which waits for each frame to be shown.
     fileprivate func renderUpdated() {
         guard let renderContext else { return }
         let flags = mpv_render_context_update(renderContext)
         if flags & UInt64(MPV_RENDER_UPDATE_FRAME.rawValue) != 0 {
-            setNeedsDisplay()
+            drawNow()
         }
+    }
+
+    private func drawNow() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        display()
+        CATransaction.commit()
     }
 
     /// Creates mpv's render context in this layer's OpenGL context.

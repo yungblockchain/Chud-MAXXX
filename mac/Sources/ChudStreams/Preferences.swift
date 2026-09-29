@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 // Playback settings, applied to the built-in player (mpv) when a stream starts. Changes that mpv
@@ -16,12 +17,24 @@ enum PlayerEngine: String, Codable, CaseIterable, Identifiable {
 }
 
 enum VideoRenderer: String, Codable, CaseIterable, Identifiable {
-    case standard, advanced
+    case auto, standard, advanced
     var id: String { rawValue }
     var label: String {
         switch self {
+        case .auto: return "Automatic (Metal on HDR screens, OpenGL otherwise)"
         case .standard: return "Standard (OpenGL)"
         case .advanced: return "Advanced (Metal): HDR output and Dolby Vision"
+        }
+    }
+
+    /// Whether this setting means the Metal renderer on the current screen.
+    var usesMetal: Bool {
+        switch self {
+        case .advanced: return true
+        case .standard: return false
+        case .auto:
+            let headroom = NSScreen.main?.maximumPotentialExtendedDynamicRangeColorComponentValue ?? 1
+            return headroom > 1.05
         }
     }
 }
@@ -91,7 +104,7 @@ enum UserAgentPreset: String, Codable, CaseIterable, Identifiable {
 struct PlaybackSettings: Codable, Equatable {
     // Player
     var engine: PlayerEngine = .builtIn
-    var renderer: VideoRenderer = .standard
+    var renderer: VideoRenderer = .auto
     var hardwareDecoding = true
     var videoSyncSmooth = false
     var interpolation = false
@@ -154,7 +167,7 @@ struct PlaybackSettings: Codable, Equatable {
     /// mpv options for a new player. `forTile` trims them for small multiview tiles.
     func mpvOptions(forTile: Bool = false) -> [(String, String)] {
         var options: [(String, String)] = [
-            ("vo", renderer == .advanced && !forTile ? "gpu-next" : "libmpv"),
+            ("vo", renderer.usesMetal && !forTile ? "gpu-next" : "libmpv"),
             ("hwdec", hardwareDecoding ? "auto-safe" : "no"),
             ("keep-open", "yes"),
             ("idle", "yes"),
@@ -229,7 +242,7 @@ struct PlaybackSettings: Codable, Equatable {
             options.append(("vd-lavc-threads", "2"))
             options.append(("hwdec", hardwareDecoding ? "auto-safe" : "no"))
         }
-        if renderer == .advanced && !forTile {
+        if renderer.usesMetal && !forTile {
             options.append(("gpu-api", "vulkan"))
             options.append(("gpu-context", "moltenvk"))
             options.append(("target-colorspace-hint", "yes"))

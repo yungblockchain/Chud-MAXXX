@@ -91,7 +91,7 @@ final class PlaybackCenter: ObservableObject {
     }
 
     private func mainPlayer(_ settings: PlaybackSettings) -> MPVPlayer {
-        let metal = settings.renderer == .advanced
+        let metal = settings.renderer.usesMetal
         let options = settings.mpvOptions()
         let signature = options.map { "\($0.0)=\($0.1)" }.joined(separator: ";") + (metal ? ";metal" : "")
         if let existing = player, existing.signature == signature, existing.isAvailable { return existing }
