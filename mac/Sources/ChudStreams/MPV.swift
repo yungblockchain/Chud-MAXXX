@@ -525,6 +525,12 @@ final class MPVGLRenderer {
 
     /// Frames drawn on screen by all players (the GitHub tour checks video really reaches the screen).
     static var framesDrawn = 0
+    /// Diagnostics for the tour: update calls, new-frame signals, displays asked for, frames skipped.
+    static var updates = 0
+    static var frameSignals = 0
+    static var displays = 0
+    static var skips = 0
+    static var draws = 0
 
     init?(core: MPVCore) {
         guard let handle = core.handle, let made = MPVGLRenderer.makeContext() else { return nil }
@@ -586,18 +592,27 @@ final class MPVGLRenderer {
     /// mpv has a new frame (main thread).
     fileprivate func updated() {
         guard let renderContext else { return }
+        MPVGLRenderer.updates += 1
         let flags = mpv_render_context_update(renderContext)
         guard flags & UInt64(MPV_RENDER_UPDATE_FRAME.rawValue) != 0 else { return }
+        MPVGLRenderer.frameSignals += 1
         if let layer, layer.superlayer != nil {
             // Drawn straight away (as IINA does): waiting for Core Animation's next pass can
             // stall mpv, which waits for each frame to be shown.
+            MPVGLRenderer.displays += 1
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             layer.display()
             CATransaction.commit()
+            CATransaction.flush()
         } else {
+            MPVGLRenderer.skips += 1
             skipFrame()
         }
+    }
+
+    static var diagnostics: String {
+        "updates \(updates), new frames \(frameSignals), displays \(displays), layer draws \(draws), drawn \(framesDrawn), skipped \(skips)"
     }
 
     /// Draws the current frame into the framebuffer that's bound (called by the layer).
@@ -710,6 +725,7 @@ final class MPVGLLayer: CAOpenGLLayer {
 
     override func draw(inCGLContext ctx: CGLContextObj, pixelFormat pf: CGLPixelFormatObj,
                        forLayerTime t: CFTimeInterval, displayTime ts: UnsafePointer<CVTimeStamp>?) {
+        MPVGLRenderer.draws += 1
         var viewport: [GLint] = [0, 0, 0, 0]
         glGetIntegerv(GLenum(GL_VIEWPORT), &viewport)
         guard let renderer, renderer.renderContext != nil else {

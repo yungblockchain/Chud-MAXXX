@@ -127,7 +127,10 @@ enum TourRunner {
             check("subtitle-tracks", subs.count >= 2, subs.map { $0.label }.joined(separator: "; "))
             check("forced-subtitles", player?.selectedSubtitle?.isForced == true, "selected: \(player?.selectedSubtitle?.label ?? "none")")
             await wait(1.5)
-            check("video-frames-drawn", MPVGLRenderer.framesDrawn > 10, "\(MPVGLRenderer.framesDrawn) frames drawn on screen")
+            log("renderer after start: " + MPVGLRenderer.diagnostics)
+            await wait(3)
+            log("renderer 3 s later: " + MPVGLRenderer.diagnostics)
+            check("video-frames-drawn", MPVGLRenderer.framesDrawn > 10, MPVGLRenderer.diagnostics)
             if let video = shot("09-player"), let window {
                 check("video-picture", pictureLooksLive(video, window: window), "checked the centre of the video area")
             }
