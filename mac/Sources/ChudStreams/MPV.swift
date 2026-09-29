@@ -90,7 +90,7 @@ final class MPVCore: @unchecked Sendable {
     ]
 
     /// Creates and starts mpv with the given options, or returns nil if mpv can't start.
-    init?(options: [(String, String)], logLevel: String = "warn") {
+    init?(options: [(String, String)], logLevel: String = ProcessInfo.processInfo.environment["CHUD_TOUR"] != nil ? "v" : "warn") {
         guard let created = mpv_create() else { return nil }
         for (name, value) in options {
             mpv_set_option_string(created, name, value)
@@ -563,7 +563,14 @@ final class MPVGLRenderer {
         let retained = Unmanaged.passRetained(self)
         self.retained = retained
         mpv_render_context_set_update_callback(created, mpvRenderUpdate, retained.toOpaque())
+        // Also ask mpv for new frames 60 times a second: its "new frame" notification alone can
+        // go quiet, and asking is cheap (this is how the player self-test drives it).
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in self?.updated() }
+        RunLoop.main.add(timer, forMode: .common)
+        pollTimer = timer
     }
+
+    private var pollTimer: Timer? = nil
 
     private static func makeContext() -> (CGLPixelFormatObj, CGLContextObj)? {
         let attempts: [[CGLPixelFormatAttribute]] = [
@@ -590,7 +597,7 @@ final class MPVGLRenderer {
     }
 
     /// mpv has a new frame (main thread).
-    fileprivate func updated() {
+    func updated() {
         guard let renderContext else { return }
         MPVGLRenderer.updates += 1
         let flags = mpv_render_context_update(renderContext)
@@ -661,6 +668,8 @@ final class MPVGLRenderer {
 
     /// Frees the render context; must happen before mpv itself is destroyed. Safe to call twice.
     func destroy() {
+        pollTimer?.invalidate()
+        pollTimer = nil
         guard let renderContext else { return }
         CGLSetCurrentContext(context)
         mpv_render_context_set_update_callback(renderContext, nil, nil)

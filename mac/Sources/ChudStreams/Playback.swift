@@ -100,6 +100,7 @@ final class PlaybackCenter: ObservableObject {
         created.onEnd = { [weak self] reason, error in self?.handleEnd(reason, error: error) }
         created.onLog = { level, text in
             if level == "error" { ErrorLog.record("Player", detail: text) }
+            if TourRunner.isRunning { print("[mpv \(level)] \(text)") }
         }
         player = created
         return created
