@@ -461,9 +461,16 @@ fun FocusFrame(
 ) {
     var focused by remember { mutableStateOf(false) }
     val focusAllowed = LocalTvFocusEnabled.current
+    // Wide things (rows, panels) grow by a few dp at most, so they don't lurch over their
+    // neighbours; cards and buttons grow by the full amount. The width is noted at layout time.
+    val widthPx = remember { FloatArray(1) }
+    val maxGrowPx = with(LocalDensity.current) { MAX_FOCUS_GROW.toPx() }
+    val grownScale = widthPx[0].takeIf { it > 0f }
+        ?.let { width -> minOf(focusedScale, 1f + maxGrowPx / width) }
+        ?: focusedScale
     // A short, even grow: quick enough to keep up with a held-down arrow key.
     val scale by animateFloatAsState(
-        targetValue = if (focused && enabled) focusedScale else 1f,
+        targetValue = if (focused && enabled) grownScale.coerceAtLeast(1f) else 1f,
         animationSpec = tween(durationMillis = FOCUS_SCALE_MS, easing = FastOutSlowInEasing),
         label = "tv-focus-scale"
     )
@@ -472,6 +479,7 @@ fun FocusFrame(
     val hud = HudShape
     Box(
         modifier = modifier
+            .onSizeChanged { widthPx[0] = it.width.toFloat() }
             .zIndex(if (focused) 1f else 0f)
             .scale(scale)
             .shadow(
@@ -1007,6 +1015,9 @@ private class FrameShape {
 }
 
 private const val FOCUS_SCALE_MS = 130
+
+/** The most a focused frame grows across its width (half on each side). */
+private val MAX_FOCUS_GROW = 28.dp
 
 /** A picture more than this far from the frame's shape is treated as a logo and shown whole. */
 private const val LOGO_RATIO_TOLERANCE = 0.35f
