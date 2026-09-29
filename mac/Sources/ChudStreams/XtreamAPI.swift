@@ -9,22 +9,51 @@ struct XtreamCredentials: Codable, Hashable {
     var password: String
 }
 
+/// Why a request to the provider failed. Each case says what actually happened, so a sign-in
+/// problem can be told apart from a wrong address, a blocked connection or an offline Mac.
 enum XtreamError: LocalizedError {
     case badServer
     case missingLogin
-    case unreachable
     case rejected
     case inactive(String)
-    case badResponse
+    case noInternet
+    case hostNotFound(String)
+    case refused(String)
+    case timedOut(String)
+    case secureConnection(String)
+    case forbidden(String)
+    case httpStatus(String, Int)
+    case notXtream(String)
+    case other(String, String)
 
     var errorDescription: String? {
         switch self {
-        case .badServer: return "Enter the server address from your provider."
-        case .missingLogin: return "Enter both your username and password."
-        case .unreachable: return "Couldn't reach that server. Check the address, including the port number."
-        case .rejected: return "The server didn't accept that username and password."
-        case .inactive(let status): return "This account is marked \"\(status)\". Contact your provider to renew it."
-        case .badResponse: return "The server sent something unexpected. Try again in a moment."
+        case .badServer:
+            return "Enter the server address from your provider."
+        case .missingLogin:
+            return "Enter both your username and password."
+        case .rejected:
+            return "The server didn't accept that username and password."
+        case .inactive(let status):
+            return "This account is marked \"\(status)\". Contact your provider to renew it."
+        case .noInternet:
+            return "This Mac isn't connected to the internet. Check your Wi-Fi, then try again."
+        case .hostNotFound(let host):
+            return "Couldn't find a server called \(host). Check the spelling of the address."
+        case .refused(let host):
+            return "\(host) isn't accepting connections on that port. Check the port number (often 8080 or 80)."
+        case .timedOut(let host):
+            return "\(host) didn't answer in time. Check the port number, or try again in a moment."
+        case .secureConnection(let host):
+            return "Couldn't make a secure connection to \(host). Try the address with http:// instead of https://."
+        case .forbidden(let host):
+            return "\(host) refused the connection (error 403). Your provider may be blocking this app or your network; check with them."
+        case .httpStatus(let host, let code):
+            return "\(host) answered with error \(code). Check the address, or try again later."
+        case .notXtream(let host):
+            return "\(host) answered, but not with Xtream account data. Use the base address your provider gave you, like http://example.com:8080."
+        case .other(let host, let detail):
+            return "Couldn't connect to \(host): \(detail)"
         }
     }
 }
@@ -153,15 +182,8 @@ struct XtreamClient {
     // MARK: Calls
 
     func accountInfo() async throws -> AccountInfo {
-        let root: Any
-        do {
-            root = try await call(action: nil)
-        } catch XtreamError.rejected {
-            throw XtreamError.rejected
-        } catch {
-            throw XtreamError.unreachable
-        }
-        guard let dict = root as? [String: Any] else { throw XtreamError.unreachable }
+        let root = try await call(action: nil)
+        guard let dict = root as? [String: Any] else { throw XtreamError.notXtream(host) }
         guard let user = dict["user_info"] as? [String: Any] else { throw XtreamError.rejected }
         if str(user, "auth") == "0" { throw XtreamError.rejected }
         let formats = (user["allowed_output_formats"] as? [Any])?.compactMap { $0 as? String } ?? []
@@ -308,30 +330,76 @@ struct XtreamClient {
 
     // MARK: Plumbing
 
+    /// The server's host and port, for error messages ("example.com:8080").
+    private var host: String {
+        guard let parts = URLComponents(string: credentials.server), let name = parts.host else {
+            return credentials.server
+        }
+        if let port = parts.port { return "\(name):\(port)" }
+        return name
+    }
+
     private func call(action: String?, params: [String: String] = [:]) async throws -> Any {
         guard var parts = URLComponents(string: credentials.server + "/player_api.php") else { throw XtreamError.badServer }
-        var query = [
-            URLQueryItem(name: "username", value: credentials.username),
-            URLQueryItem(name: "password", value: credentials.password),
-        ]
-        if let action { query.append(URLQueryItem(name: "action", value: action)) }
+        var query: [(String, String)] = [("username", credentials.username), ("password", credentials.password)]
+        if let action { query.append(("action", action)) }
         for (key, value) in params.sorted(by: { $0.key < $1.key }) {
-            query.append(URLQueryItem(name: key, value: value))
+            query.append((key, value))
         }
-        parts.queryItems = query
+        // Encode everything but letters, digits and -._~ ourselves: URLComponents leaves "+" as is,
+        // which servers read as a space, breaking passwords that contain one.
+        parts.percentEncodedQuery = query
+            .map { "\(queryEncode($0.0))=\(queryEncode($0.1))" }
+            .joined(separator: "&")
         guard let url = parts.url else { throw XtreamError.badServer }
         var request = URLRequest(url: url, timeoutInterval: 25)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("ChudStreams/1.0 (Macintosh)", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await URLSession.shared.data(for: request)
+
+        let result: (Data, URLResponse)
+        do {
+            result = try await URLSession.shared.data(for: request)
+        } catch let error as URLError {
+            throw describe(error)
+        }
+        let (data, response) = result
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        if code == 401 || code == 403 { throw XtreamError.rejected }
-        guard (200...299).contains(code) else { throw XtreamError.unreachable }
+        if code == 401 { throw XtreamError.rejected }
+        if code == 403 { throw XtreamError.forbidden(host) }
+        guard (200...299).contains(code) else { throw XtreamError.httpStatus(host, code) }
         do {
             return try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
         } catch {
-            throw XtreamError.badResponse
+            // Usually a web page: a login portal, a block page or a Cloudflare check.
+            throw XtreamError.notXtream(host)
         }
+    }
+
+    private func describe(_ error: URLError) -> XtreamError {
+        switch error.code {
+        case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff:
+            return .noInternet
+        case .cannotFindHost, .dnsLookupFailed:
+            return .hostNotFound(host)
+        case .cannotConnectToHost, .networkConnectionLost:
+            return .refused(host)
+        case .timedOut:
+            return .timedOut(host)
+        case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate,
+             .serverCertificateNotYetValid, .serverCertificateHasUnknownRoot, .clientCertificateRejected,
+             .clientCertificateRequired:
+            return .secureConnection(host)
+        case .appTransportSecurityRequiresSecureConnection:
+            return .secureConnection(host)
+        default:
+            return .other(host, error.localizedDescription)
+        }
+    }
+
+    /// Percent-encodes everything except unreserved ASCII characters.
+    private func queryEncode(_ value: String) -> String {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
     private func parseSeasons(_ element: Any?) -> [Season] {

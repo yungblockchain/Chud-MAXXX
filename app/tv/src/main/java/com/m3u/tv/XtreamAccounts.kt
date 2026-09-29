@@ -12,9 +12,14 @@ import com.m3u.data.parser.xtream.XtreamInput
 import com.m3u.data.repository.playlist.PlaylistRepository
 import com.m3u.data.worker.SubscriptionWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.URLEncoder
+import java.net.UnknownHostException
+import javax.net.ssl.SSLException
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -49,9 +54,17 @@ data class XtreamCredentials(
     val password: String,
 )
 
+/** What went wrong when the provider's server couldn't be used, so the app can say so plainly. */
+enum class XtreamProblem { Generic, HostNotFound, Refused, Timeout, Secure, Forbidden, HttpStatus, NotXtream }
+
 sealed interface XtreamAccountStatus {
     data object Loading : XtreamAccountStatus
-    data object Unreachable : XtreamAccountStatus
+    data class Unreachable(
+        val problem: XtreamProblem = XtreamProblem.Generic,
+        /** Host and port, for messages ("example.com:8080"). */
+        val host: String = "",
+        val httpCode: Int? = null,
+    ) : XtreamAccountStatus
     data object Rejected : XtreamAccountStatus
     data class Ready(
         val status: String?,
@@ -109,6 +122,7 @@ internal object XtreamClient {
                 append("&password=")
                 append(URLEncoder.encode(credentials.password, Charsets.UTF_8.name()))
             }
+            val host = hostLabel(credentials.server)
             var connection: HttpURLConnection? = null
             try {
                 connection = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -116,13 +130,19 @@ internal object XtreamClient {
                     readTimeout = 15_000
                     instanceFollowRedirects = true
                     setRequestProperty("Accept", "application/json")
-                    setRequestProperty("User-Agent", "Dial/1.0 (Android TV)")
+                    setRequestProperty("User-Agent", "ChudStreams/1.0 (Android TV)")
                 }
-                when (connection.responseCode) {
-                    HttpURLConnection.HTTP_UNAUTHORIZED,
-                    HttpURLConnection.HTTP_FORBIDDEN -> return@withContext XtreamAccountStatus.Rejected
+                when (val code = connection.responseCode) {
+                    HttpURLConnection.HTTP_UNAUTHORIZED -> return@withContext XtreamAccountStatus.Rejected
+                    // 403 usually means the provider is blocking the device, app or network,
+                    // not a wrong password (panels answer those with auth = 0).
+                    HttpURLConnection.HTTP_FORBIDDEN -> return@withContext XtreamAccountStatus.Unreachable(
+                        XtreamProblem.Forbidden, host, code,
+                    )
                     in 200..299 -> Unit
-                    else -> return@withContext XtreamAccountStatus.Unreachable
+                    else -> return@withContext XtreamAccountStatus.Unreachable(
+                        XtreamProblem.HttpStatus, host, code,
+                    )
                 }
                 val body = connection.inputStream.bufferedReader().use { reader ->
                     val buffer = CharArray(8 * 1024)
@@ -134,19 +154,37 @@ internal object XtreamClient {
                     }
                     out.toString()
                 }
-                parseAccount(body)
+                parseAccount(body, host)
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: UnknownHostException) {
+                XtreamAccountStatus.Unreachable(XtreamProblem.HostNotFound, host)
+            } catch (e: SocketTimeoutException) {
+                XtreamAccountStatus.Unreachable(XtreamProblem.Timeout, host)
+            } catch (e: ConnectException) {
+                XtreamAccountStatus.Unreachable(XtreamProblem.Refused, host)
+            } catch (e: NoRouteToHostException) {
+                XtreamAccountStatus.Unreachable(XtreamProblem.Refused, host)
+            } catch (e: SSLException) {
+                XtreamAccountStatus.Unreachable(XtreamProblem.Secure, host)
             } catch (e: Exception) {
-                XtreamAccountStatus.Unreachable
+                XtreamAccountStatus.Unreachable(XtreamProblem.Generic, host)
             } finally {
                 connection?.disconnect()
             }
         }
 
-    internal fun parseAccount(body: String): XtreamAccountStatus {
+    /** "http://example.com:8080" -> "example.com:8080", for messages. */
+    fun hostLabel(server: String): String {
+        val uri = runCatching { Uri.parse(server) }.getOrNull() ?: return server
+        val host = uri.host?.takeIf { it.isNotBlank() } ?: return server
+        return if (uri.port > 0) "$host:${uri.port}" else host
+    }
+
+    internal fun parseAccount(body: String, host: String = ""): XtreamAccountStatus {
+        // Anything other than a JSON object is usually a web page: a portal, block page or check.
         val root = runCatching { json.parseToJsonElement(body) }.getOrNull() as? JsonObject
-            ?: return XtreamAccountStatus.Unreachable
+            ?: return XtreamAccountStatus.Unreachable(XtreamProblem.NotXtream, host)
         val user = root["user_info"] as? JsonObject ?: return XtreamAccountStatus.Rejected
         fun field(name: String): String? = (user[name] as? JsonPrimitive)?.contentOrNull
         if (field("auth") == "0") return XtreamAccountStatus.Rejected
@@ -174,7 +212,11 @@ sealed interface XtreamSignInPhase {
     data object Checking : XtreamSignInPhase
     data object Importing : XtreamSignInPhase
     data object Done : XtreamSignInPhase
-    data class Failed(val error: XtreamSignInError, val detail: String? = null) : XtreamSignInPhase
+    data class Failed(
+        val error: XtreamSignInError,
+        val detail: String? = null,
+        val unreachable: XtreamAccountStatus.Unreachable? = null,
+    ) : XtreamSignInPhase
 }
 
 @Immutable
@@ -264,7 +306,7 @@ class XtreamAccountViewModel @Inject constructor(
 
         signInJob = viewModelScope.launch {
             when (val status = XtreamClient.fetchAccount(credentials)) {
-                XtreamAccountStatus.Unreachable -> fail(XtreamSignInError.Unreachable)
+                is XtreamAccountStatus.Unreachable -> fail(XtreamSignInError.Unreachable, unreachable = status)
                 XtreamAccountStatus.Rejected -> fail(XtreamSignInError.Rejected)
                 XtreamAccountStatus.Loading -> Unit
                 is XtreamAccountStatus.Ready -> {
@@ -333,8 +375,12 @@ class XtreamAccountViewModel @Inject constructor(
         }
     }
 
-    private fun fail(error: XtreamSignInError, detail: String? = null) {
-        _form.update { it.copy(phase = XtreamSignInPhase.Failed(error, detail)) }
+    private fun fail(
+        error: XtreamSignInError,
+        detail: String? = null,
+        unreachable: XtreamAccountStatus.Unreachable? = null,
+    ) {
+        _form.update { it.copy(phase = XtreamSignInPhase.Failed(error, detail, unreachable)) }
     }
 
     private fun XtreamSignInForm.idleUnlessBusy(): XtreamSignInPhase =

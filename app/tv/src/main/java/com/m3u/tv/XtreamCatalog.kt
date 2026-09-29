@@ -295,7 +295,7 @@ internal object XtreamCatalog {
                 readTimeout = 20_000
                 instanceFollowRedirects = true
                 setRequestProperty("Accept", "application/json")
-                setRequestProperty("User-Agent", "Dial/1.0 (Android TV)")
+                setRequestProperty("User-Agent", "ChudStreams/1.0 (Android TV)")
             }
             if (connection.responseCode !in 200..299) return@withContext null
             val body = connection.inputStream.bufferedReader().use { it.readText() }

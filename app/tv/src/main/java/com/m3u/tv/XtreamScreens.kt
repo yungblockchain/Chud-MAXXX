@@ -230,11 +230,28 @@ private fun SignInMessage(phase: XtreamSignInPhase) {
     )
 }
 
+/** Says what actually went wrong reaching the server, not just that it failed. */
+@Composable
+private fun unreachableText(status: XtreamAccountStatus.Unreachable?): String {
+    val host = status?.host?.takeIf { it.isNotBlank() }
+    if (status == null || host == null) return stringResource(R.string.dial_error_unreachable)
+    return when (status.problem) {
+        XtreamProblem.HostNotFound -> stringResource(R.string.dial_error_host_not_found, host)
+        XtreamProblem.Refused -> stringResource(R.string.dial_error_refused, host)
+        XtreamProblem.Timeout -> stringResource(R.string.dial_error_timeout, host)
+        XtreamProblem.Secure -> stringResource(R.string.dial_error_secure, host)
+        XtreamProblem.Forbidden -> stringResource(R.string.dial_error_forbidden, host)
+        XtreamProblem.HttpStatus -> stringResource(R.string.dial_error_http, host, status.httpCode ?: 0)
+        XtreamProblem.NotXtream -> stringResource(R.string.dial_error_not_xtream, host)
+        XtreamProblem.Generic -> stringResource(R.string.dial_error_unreachable)
+    }
+}
+
 @Composable
 private fun signInErrorText(failure: XtreamSignInPhase.Failed): String = when (failure.error) {
     XtreamSignInError.MissingServer -> stringResource(R.string.dial_error_missing_server)
     XtreamSignInError.MissingCredentials -> stringResource(R.string.dial_error_missing_credentials)
-    XtreamSignInError.Unreachable -> stringResource(R.string.dial_error_unreachable)
+    XtreamSignInError.Unreachable -> unreachableText(failure.unreachable)
     XtreamSignInError.Rejected -> stringResource(R.string.dial_error_rejected)
     XtreamSignInError.AccountInactive -> failure.detail
         ?.takeIf { it.isNotBlank() }
@@ -524,8 +541,12 @@ private fun AccountFact(label: String, value: String, valueColor: Color) {
 private fun statusLine(status: XtreamAccountStatus): Pair<String, Color> = when (status) {
     XtreamAccountStatus.Loading ->
         stringResource(R.string.dial_account_checking) to TvColors.TextSecondary
-    XtreamAccountStatus.Unreachable ->
-        stringResource(R.string.dial_account_unreachable) to TvColors.Danger
+    is XtreamAccountStatus.Unreachable -> when (status.problem) {
+        XtreamProblem.Forbidden -> stringResource(R.string.dial_account_blocked)
+        XtreamProblem.HttpStatus -> stringResource(R.string.dial_account_http_error, status.httpCode ?: 0)
+        XtreamProblem.NotXtream -> stringResource(R.string.dial_account_not_xtream)
+        else -> stringResource(R.string.dial_account_unreachable)
+    } to TvColors.Danger
     XtreamAccountStatus.Rejected ->
         stringResource(R.string.dial_account_rejected) to TvColors.Danger
     is XtreamAccountStatus.Ready -> when {

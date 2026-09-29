@@ -24,6 +24,13 @@
     <string name="dial_error_missing_server">Enter the server address from your provider.</string>
     <string name="dial_error_missing_credentials">Enter both your username and password.</string>
     <string name="dial_error_unreachable">Couldn\'t reach that server. Check the address, including the port number, then try again.</string>
+    <string name="dial_error_host_not_found">Couldn\'t find a server called %1$s. Check the spelling, and that the Fire TV is online.</string>
+    <string name="dial_error_refused">%1$s isn\'t accepting connections on that port. Check the port number (often 8080 or 80).</string>
+    <string name="dial_error_timeout">%1$s didn\'t answer in time. Check the port number, or try again in a moment.</string>
+    <string name="dial_error_secure">Couldn\'t make a secure connection to %1$s. Try the address with http:// instead of https://.</string>
+    <string name="dial_error_forbidden">%1$s refused the connection (error 403). Your provider may be blocking this device, app or network; check with them.</string>
+    <string name="dial_error_http">%1$s answered with error %2$d. Check the address, or try again later.</string>
+    <string name="dial_error_not_xtream">%1$s answered, but not with Xtream account data. Use the base address your provider gave you, like http://example.com:8080.</string>
     <string name="dial_error_rejected">The server didn\'t accept that username and password.</string>
     <string name="dial_error_inactive">This account is marked \"%1$s\". Contact your provider to renew it.</string>
     <string name="dial_error_inactive_generic">This account isn\'t active. Contact your provider to renew it.</string>
@@ -40,6 +47,9 @@
     <string name="dial_account_status_trial">Active (trial)</string>
     <string name="dial_account_checking">Checking…</string>
     <string name="dial_account_unreachable">Server not responding</string>
+    <string name="dial_account_blocked">Blocked by the server (error 403)</string>
+    <string name="dial_account_http_error">Server error %1$d</string>
+    <string name="dial_account_not_xtream">Server sent a web page, not account data</string>
     <string name="dial_account_rejected">Login no longer accepted</string>
     <string name="dial_account_no_expiry">Never</string>
     <string name="dial_account_expires_value">%1$s (%2$s)</string>
