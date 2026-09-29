@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -234,6 +235,8 @@ fun XtreamSignInScreen(
                     runCatching { signInFocus.requestFocus() }
                     viewModel.submit()
                 },
+                // Straight down to Sign in, not the phone button beside it.
+                downFocus = signInFocus,
             )
             Row(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -355,6 +358,8 @@ internal fun DialTextField(
     secret: Boolean = false,
     focusRequester: FocusRequester? = null,
     onDone: () -> Unit = {},
+    /** Where Down goes from this field, when the nearest thing below isn't the right one. */
+    downFocus: FocusRequester? = null,
 ) {
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -402,6 +407,7 @@ internal fun DialTextField(
                 .fillMaxWidth()
                 .heightIn(min = 52.dp)
                 .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+                .then(downFocus?.let { target -> Modifier.focusProperties { down = target } } ?: Modifier)
                 .onFocusChanged { focused = it.isFocused }
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) {
