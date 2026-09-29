@@ -25,6 +25,8 @@ class M3UApplication : Application(), Configuration.Provider, ImageLoaderFactory
 
     override fun onCreate() {
         super.onCreate()
+        // Crash reports stay on the device until the person sends them (Settings > Services).
+        CrashReports.install(this)
         initializePersistedUriPermissionLeases(this)
         PersistedUriPermissionCleanupWorker.enqueueRecovery(
             WorkManager.getInstance(this)

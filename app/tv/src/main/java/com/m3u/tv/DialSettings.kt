@@ -56,6 +56,8 @@ data class DialPreferences(
     val autoplayNextEpisode: Boolean = true,
     /** Menus at the fastest refresh rate the Fire TV offers (120 Hz where it lists 120 Hz). */
     val fastMenus: Boolean = true,
+    /** Send crash and error reports to the person's GitHub repository when the app starts. */
+    val autoSendReports: Boolean = false,
 ) {
     companion object {
         val SUBTITLE_SIZE_OPTIONS = listOf(75, 100, 125, 150, 200)
@@ -283,6 +285,7 @@ class DialSettingsStore @Inject constructor(
             .putInt(KEY_SUBTITLE_SIZE, next.subtitleSizePercent)
             .putBoolean(KEY_AUTOPLAY_NEXT, next.autoplayNextEpisode)
             .putBoolean(KEY_FAST_MENUS, next.fastMenus)
+            .putBoolean(KEY_AUTO_SEND_REPORTS, next.autoSendReports)
             .apply()
     }
 
@@ -371,6 +374,7 @@ class DialSettingsStore @Inject constructor(
             subtitleSizePercent = prefs.getInt(KEY_SUBTITLE_SIZE, defaults.subtitleSizePercent),
             autoplayNextEpisode = prefs.getBoolean(KEY_AUTOPLAY_NEXT, defaults.autoplayNextEpisode),
             fastMenus = prefs.getBoolean(KEY_FAST_MENUS, defaults.fastMenus),
+            autoSendReports = prefs.getBoolean(KEY_AUTO_SEND_REPORTS, defaults.autoSendReports),
         )
     }
 
@@ -398,6 +402,7 @@ class DialSettingsStore @Inject constructor(
         const val KEY_SUBTITLE_SIZE = "subtitle_size"
         const val KEY_AUTOPLAY_NEXT = "autoplay_next_episode"
         const val KEY_FAST_MENUS = "fast_menus"
+        const val KEY_AUTO_SEND_REPORTS = "auto_send_reports"
         const val KEY_LAST_CHANNEL = "last_channel"
         const val KEY_HISTORY = "on_demand_history"
         const val KEY_FAVOURITE_GROUPS = "favourite_groups"

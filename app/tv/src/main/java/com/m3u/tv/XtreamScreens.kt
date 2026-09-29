@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.runtime.Composable
@@ -90,6 +91,8 @@ fun XtreamSignInScreen(
     viewModel: XtreamAccountViewModel = hiltViewModel(),
 ) {
     val form by viewModel.form.collectAsStateWithLifecycle()
+    val services: ServicesSettingsViewModel = hiltViewModel()
+    val phonePage by services.phonePage.collectAsStateWithLifecycle()
     val serverFocus = remember { FocusRequester() }
     // The form is taller than the screen with the Xtream/M3U switch on top; whenever there's
     // news (checking, progress, done, a problem), scroll down so the message under the button
@@ -169,7 +172,15 @@ fun XtreamSignInScreen(
                     selected = m3u,
                     onClick = { viewModel.setMode(SignInMode.M3u) },
                 )
+                // Typing a long server address and password with a remote is slow.
+                TvActionButton(
+                    text = stringResource(R.string.dial_signin_use_phone),
+                    icon = Icons.Rounded.PhoneAndroid,
+                    selected = phonePage != null,
+                    onClick = services::togglePhonePage,
+                )
             }
+            phonePage?.let { PhonePageCard(it) }
             if (m3u) {
                 DialTextField(
                     label = stringResource(R.string.dial_field_playlist_url),

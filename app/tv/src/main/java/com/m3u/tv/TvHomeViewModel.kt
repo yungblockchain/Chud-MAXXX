@@ -131,6 +131,10 @@ class TvHomeViewModel @Inject constructor(
     val isPlaying: StateFlow<Boolean> = playerManager.isPlaying
     val playbackState: StateFlow<Int> = playerManager.playbackState
     val reconnecting: StateFlow<Boolean> = playerManager.reconnecting
+    /** Name of the error a stream stopped with (for error reports), or null. */
+    val playbackError: StateFlow<String?> = playerManager.playbackException
+        .map { it?.errorCodeName }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), null)
     val playbackFailed: StateFlow<Boolean> = playerManager.playbackException
         .map { it != null }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), false)

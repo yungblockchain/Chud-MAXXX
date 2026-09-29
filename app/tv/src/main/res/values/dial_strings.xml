@@ -470,4 +470,22 @@
     <string name="dial_markets_telegram_failed">Telegram didn\'t take it. Check the bot token and chat ID.</string>
     <string name="dial_markets_scan">Scan to open in %1$s</string>
     <string name="dial_markets_next_link">Other link</string>
+
+    <!-- Crash reports and the phone page -->
+    <string name="dial_services_reports_saved">Saved reports</string>
+    <string name="dial_services_reports_count">%1$d (%2$d not sent)</string>
+    <string name="dial_services_reports_send">Send reports to GitHub now</string>
+    <string name="dial_services_reports_sending">Sending…</string>
+    <string name="dial_services_reports_sent">%1$d sent</string>
+    <string name="dial_services_reports_setup">Add the repository and token first</string>
+    <string name="dial_services_reports_failed">GitHub refused. Check the token and repository.</string>
+    <string name="dial_services_reports_auto">Send reports when the app starts</string>
+    <string name="dial_services_reports_delete">Delete all reports</string>
+    <string name="dial_services_section_phone">Phone page</string>
+    <string name="dial_services_phone_page">Type on your phone instead</string>
+    <string name="dial_services_phone_qr">QR code for the phone page</string>
+    <string name="dial_services_phone_scan">Scan with a phone on the same Wi-Fi, or open:</string>
+    <string name="dial_services_phone_pin">PIN %1$s</string>
+    <string name="dial_signin_use_phone">Use your phone</string>
+    <string name="dial_phone_key_saved">Key saved from your phone</string>
 </resources>

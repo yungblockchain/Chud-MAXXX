@@ -113,6 +113,8 @@ fun App(
     dial: DialViewModel = hiltViewModel(),
     claude: ClaudeViewModel = hiltViewModel(),
     metadata: MetadataViewModel = hiltViewModel(),
+    services: ServicesSettingsViewModel = hiltViewModel(),
+    accounts: XtreamAccountViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val player by viewModel.player.collectAsStateWithLifecycle()
@@ -270,6 +272,53 @@ fun App(
                 openOrPlay(channel)
             }
         }
+    }
+
+    // The phone page: what's typed on the phone lands here.
+    val keySaved = stringResource(R.string.dial_phone_key_saved)
+    LaunchedEffect(services) {
+        services.phoneMessages.collect { message ->
+            when (message) {
+                is PhoneMessage.Search -> {
+                    destination = TvDestination.Library
+                    viewModel.search(message.query)
+                }
+                is PhoneMessage.AskClaude -> {
+                    destination = TvDestination.Claude
+                    claude.send(message.question)
+                }
+                is PhoneMessage.XtreamLogin -> {
+                    destination = TvDestination.Account
+                    accounts.setMode(SignInMode.Xtream)
+                    accounts.updateServer(message.server)
+                    accounts.updateUsername(message.username)
+                    accounts.updatePassword(message.password)
+                }
+                is PhoneMessage.M3uPlaylist -> {
+                    destination = TvDestination.Account
+                    accounts.setMode(SignInMode.M3u)
+                    accounts.updatePlaylistUrl(message.url)
+                    accounts.updateEpgUrl(message.epgUrl)
+                }
+                is PhoneMessage.KeySaved -> Toast.makeText(context, keySaved, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // Error reports: a stream that stopped for good (after the automatic retries).
+    val playbackError by viewModel.playbackError.collectAsStateWithLifecycle()
+    LaunchedEffect(playbackFailed, playbackError) {
+        if (!playbackFailed) return@LaunchedEffect
+        val channel = currentChannel ?: return@LaunchedEffect
+        CrashReports.recordError(
+            context = context,
+            title = "Stream stopped: ${channel.title}",
+            details = "Error: ${playbackError ?: "unknown"}\nLive: $live\nAddress: ${channel.url}",
+        )
+    }
+    // Send saved reports when the app starts, if that's switched on.
+    LaunchedEffect(Unit) {
+        if (dial.preferences.value.autoSendReports) services.sendReports()
     }
 
     // Hold-OK menus.
