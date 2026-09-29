@@ -6,6 +6,8 @@ import android.content.ContextWrapper
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.core.animateFloatAsState
@@ -127,6 +129,8 @@ fun TvPlayerScreen(
     onToggleFavourite: () -> Unit,
     onBack: () -> Unit,
     onClose: () -> Unit,
+    onMinimize: (() -> Unit)? = null,
+    onMultiview: (() -> Unit)? = null,
 ) {
     val view = LocalView.current
     val playPauseFocusRequester = remember { FocusRequester() }
@@ -510,6 +514,20 @@ fun TvPlayerScreen(
                                 onToggleFavourite()
                                 showControls()
                             },
+                        )
+                    }
+                    onMinimize?.let { minimize ->
+                        TvIconActionButton(
+                            icon = Icons.Rounded.PictureInPictureAlt,
+                            contentDescription = stringResource(R.string.dial_player_mini),
+                            onClick = minimize,
+                        )
+                    }
+                    if (live && onMultiview != null) {
+                        TvIconActionButton(
+                            icon = Icons.Rounded.GridView,
+                            contentDescription = stringResource(R.string.dial_multiview_title),
+                            onClick = onMultiview,
                         )
                     }
                     TvIconActionButton(

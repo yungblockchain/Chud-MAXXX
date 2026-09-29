@@ -488,4 +488,19 @@
     <string name="dial_services_phone_pin">PIN %1$s</string>
     <string name="dial_signin_use_phone">Use your phone</string>
     <string name="dial_phone_key_saved">Key saved from your phone</string>
+
+    <!-- Mini player and Multiview -->
+    <string name="dial_setting_back_in_player">Back in the player</string>
+    <string name="dial_value_mini_player">Mini player</string>
+    <string name="dial_value_close_player">Close</string>
+    <string name="dial_player_mini">Mini player</string>
+    <string name="dial_mini_hint">Menu: full screen · Back: close</string>
+    <string name="dial_multiview_title">Multiview</string>
+    <string name="dial_multiview_add">Add a channel</string>
+    <string name="dial_multiview_full">Watch full screen</string>
+    <string name="dial_multiview_change">Change channel</string>
+    <string name="dial_multiview_remove">Remove from Multiview</string>
+    <string name="dial_multiview_pick">Choose a channel</string>
+    <string name="dial_multiview_pick_empty">Add favourites or open a live playlist in Browse first.</string>
+    <string name="dial_menu_multiview">Add to Multiview</string>
 </resources>

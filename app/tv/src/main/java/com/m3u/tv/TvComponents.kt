@@ -310,6 +310,8 @@ fun FocusFrame(
     onKey: (KeyEvent) -> Boolean = { false },
     /** Holding OK: the item's menu. */
     onLongClick: (() -> Unit)? = null,
+    /** No fill, only the focus ring (for frames over video). */
+    transparent: Boolean = false,
     content: @Composable BoxScope.(focused: Boolean) -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -326,7 +328,7 @@ fun FocusFrame(
             .zIndex(if (focused) 1f else 0f)
             .scale(scale)
             .shadow(
-                elevation = if (focused && enabled) 18.dp else 0.dp,
+                elevation = if (focused && enabled && !transparent) 18.dp else 0.dp,
                 shape = hud,
                 clip = false,
                 ambientColor = TvColors.Focus,
@@ -335,6 +337,7 @@ fun FocusFrame(
             .clip(hud)
             .background(
                 when {
+                    transparent -> Color.Transparent
                     focused && enabled -> TvColors.Focus
                     selected && enabled -> TvColors.Focus.copy(alpha = 0.72f)
                     else -> TvColors.Surface.copy(alpha = 0.86f)

@@ -29,6 +29,7 @@ import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.CheckBox
 import androidx.compose.material.icons.rounded.CheckBoxOutlineBlank
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -88,6 +89,7 @@ class ChannelMenuActions(
     val playExternally: (() -> Unit)? = null,
     val hide: (() -> Unit)? = null,
     val askClaude: (() -> Unit)? = null,
+    val addToMultiview: (() -> Unit)? = null,
     val toggleGroup: (String) -> Unit = {},
     val createGroup: (String) -> Unit = {},
 )
@@ -163,6 +165,9 @@ fun ChannelMenu(
                     onClick = { groupsPage = true },
                 )
             )
+        }
+        actions.addToMultiview?.let {
+            add(MenuEntry(stringResource(R.string.dial_menu_multiview), Icons.Rounded.GridView, run(it)))
         }
         actions.playExternally?.let {
             add(MenuEntry(stringResource(R.string.dial_menu_play_externally), Icons.AutoMirrored.Rounded.OpenInNew, run(it)))

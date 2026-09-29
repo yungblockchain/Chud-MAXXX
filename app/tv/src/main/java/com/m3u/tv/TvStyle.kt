@@ -78,5 +78,9 @@ enum class TvDestination(
 
 enum class TvSurface {
     Browse,
-    Player
+    Player,
+    /** Video in a corner while browsing. */
+    Mini,
+    /** Up to four live channels at once. */
+    Multiview,
 }

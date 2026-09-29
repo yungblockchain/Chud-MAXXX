@@ -1,5 +1,10 @@
 package com.m3u.tv
 
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -115,6 +120,7 @@ fun App(
     metadata: MetadataViewModel = hiltViewModel(),
     services: ServicesSettingsViewModel = hiltViewModel(),
     accounts: XtreamAccountViewModel = hiltViewModel(),
+    multiview: MultiviewViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val player by viewModel.player.collectAsStateWithLifecycle()
@@ -135,6 +141,9 @@ fun App(
         viewModel.releasePlayer()
         surface = TvSurface.Browse
     }
+    val minimizePlayer = { surface = TvSurface.Mini }
+    // Browsing, with or without the mini player in the corner.
+    val onBrowse = surface == TvSurface.Browse || surface == TvSurface.Mini
 
     // Dial: settings, details pages, continue watching.
     val preferences by dial.preferences.collectAsStateWithLifecycle()
@@ -229,7 +238,7 @@ fun App(
 
     // Menus at the fastest refresh rate the Fire TV offers at this resolution.
     LaunchedEffect(preferences.fastMenus, surface) {
-        if (surface == TvSurface.Browse) {
+        if (surface == TvSurface.Browse || surface == TvSurface.Mini) {
             view.context.findActivity()?.let { DisplayModes.applyMenuMode(it, preferences.fastMenus) }
         }
     }
@@ -243,7 +252,7 @@ fun App(
         remember(playingId, nowPlaying) { dial.nextEpisode() }
     } else null
     LaunchedEffect(surface) {
-        if (surface == TvSurface.Browse) {
+        if (surface == TvSurface.Browse || surface == TvSurface.Mini) {
             dial.refreshAfterPlayback()
             viewModel.refreshRecentlyPlayed()
         }
@@ -321,6 +330,13 @@ fun App(
         if (dial.preferences.value.autoSendReports) services.sendReports()
     }
 
+    // Multiview: the main player stops (the Fire TV has few video decoders), tiles take over.
+    val openMultiview: (Channel) -> Unit = { channel ->
+        viewModel.releasePlayer()
+        multiview.add(channel)
+        surface = TvSurface.Multiview
+    }
+
     // Hold-OK menus.
     val favouriteGroups by dial.favouriteGroups.collectAsStateWithLifecycle()
     val groupChannels by dial.groupChannels.collectAsStateWithLifecycle()
@@ -382,7 +398,7 @@ fun App(
     var exitHintVisible by remember { mutableStateOf(false) }
     BackHandler(
         enabled = backTarget == TvAppBackTarget.ACTIVITY && details == null &&
-            !showSplash && preferences.backTwiceToExit
+            !showSplash && preferences.backTwiceToExit && surface == TvSurface.Browse
     ) {
         val now = SystemClock.uptimeMillis()
         if (exitHintVisible && now - exitArmedAt < EXIT_WINDOW_MS) {
@@ -393,6 +409,14 @@ fun App(
             exitHintVisible = true
         }
     }
+    // With the mini player showing, Back closes it first.
+    BackHandler(enabled = surface == TvSurface.Mini && details == null, onBack = closePlayer)
+    // The mini player keeps the screensaver away like the full one does.
+    DisposableEffect(view, surface == TvSurface.Mini && isPlaying) {
+        if (surface == TvSurface.Mini && isPlaying) view.keepScreenOn = true
+        onDispose { if (surface != TvSurface.Player) view.keepScreenOn = false }
+    }
+
     LaunchedEffect(exitArmedAt) {
         if (exitArmedAt == 0L) return@LaunchedEffect
         delay(EXIT_WINDOW_MS)
@@ -405,8 +429,14 @@ fun App(
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_STOP -> viewModel.sleepPlayer()
-                Lifecycle.Event.ON_START -> viewModel.wakePlayer()
+                Lifecycle.Event.ON_STOP -> {
+                    viewModel.sleepPlayer()
+                    multiview.stopAll()
+                }
+                Lifecycle.Event.ON_START -> {
+                    viewModel.wakePlayer()
+                    multiview.resumeAll()
+                }
                 else -> Unit
             }
         }
@@ -442,9 +472,24 @@ fun App(
             .fillMaxSize()
             .background(TvColors.Background)
             .windowInsetsPadding(WindowInsets.safeDrawing)
+            .onPreviewKeyEvent { event ->
+                // Mini player: Menu brings it back full screen; play/pause works from anywhere.
+                if (surface != TvSurface.Mini || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.Menu -> {
+                        surface = TvSurface.Player
+                        true
+                    }
+                    Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> {
+                        viewModel.pauseOrContinue(!isPlaying)
+                        true
+                    }
+                    else -> false
+                }
+            }
     ) {
         TvBackdrop(channel = currentChannel ?: state.heroChannel)
-        val browsing = surface == TvSurface.Browse && details == null && !showSplash
+        val browsing = onBrowse && details == null && !showSplash
         CompositionLocalProvider(
             LocalTvFocusEnabled provides browsing,
             LocalChannelMenu provides openChannelMenu.takeIf { browsing },
@@ -567,7 +612,7 @@ fun App(
         details?.let { current ->
             DetailsScreen(
                 state = current,
-                active = surface == TvSurface.Browse && person == null,
+                active = onBrowse && person == null,
                 isFavourite = state.favorites.any { it.id == current.channel.id },
                 onPlayFilm = { fromStart ->
                     if (dial.playsExternally(current.channel)) {
@@ -652,6 +697,9 @@ fun App(
                         { viewModel.hideChannel(channel) }
                     } else null,
                     askClaude = { askClaudeAbout(channel) },
+                    addToMultiview = if (kind == MenuItemKind.Live && multiview.supports(channel)) {
+                        { openMultiview(channel) }
+                    } else null,
                     toggleGroup = { groupId -> dial.toggleInGroup(groupId, channel.id) },
                     createGroup = { name -> dial.createGroup(name, channel.id) },
                 ),
@@ -698,8 +746,39 @@ fun App(
                 onNextChannel = { zap(1) },
                 onPreviousChannel = { zap(-1) },
                 onToggleFavourite = { currentChannel?.let(viewModel::toggleFavorite) },
-                onBack = closePlayer,
-                onClose = closePlayer
+                onBack = if (preferences.backToMini) minimizePlayer else closePlayer,
+                onClose = closePlayer,
+                onMinimize = minimizePlayer,
+                onMultiview = { currentChannel?.let(openMultiview) },
+            )
+        }
+
+        if (surface == TvSurface.Mini) {
+            player?.let { current ->
+                MiniPlayer(
+                    player = current,
+                    channel = currentChannel,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 32.dp, bottom = 24.dp),
+                )
+            }
+        }
+
+        if (surface == TvSurface.Multiview) {
+            val liveChannels = remember(state.favorites, state.channels, state.playlists) {
+                (state.favorites + state.channels)
+                    .distinctBy { it.id }
+                    .filter { kindOf(it) == MenuItemKind.Live }
+            }
+            MultiviewScreen(
+                candidates = liveChannels,
+                onOpenFull = { channel ->
+                    viewModel.play(channel)
+                    surface = TvSurface.Player
+                },
+                onClose = { surface = TvSurface.Browse },
+                viewModel = multiview,
             )
         }
 
@@ -718,7 +797,7 @@ fun App(
         }
 
         AnimatedVisibility(
-            visible = exitHintVisible && surface == TvSurface.Browse,
+            visible = exitHintVisible && onBrowse,
             enter = fadeIn() + slideInVertically { it / 2 },
             exit = fadeOut() + slideOutVertically { it / 2 },
             modifier = Modifier

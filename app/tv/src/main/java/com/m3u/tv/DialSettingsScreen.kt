@@ -153,6 +153,15 @@ fun DialSettingsScreen(
         }
         item {
             SettingRow(
+                label = stringResource(R.string.dial_setting_back_in_player),
+                value = stringResource(
+                    if (preferences.backToMini) R.string.dial_value_mini_player else R.string.dial_value_close_player
+                ),
+                onClick = { onUpdate { it.copy(backToMini = !it.backToMini) } },
+            )
+        }
+        item {
+            SettingRow(
                 label = stringResource(R.string.dial_setting_controls_timeout),
                 value = stringResource(R.string.dial_value_seconds, preferences.controlsTimeoutSeconds),
                 onClick = {

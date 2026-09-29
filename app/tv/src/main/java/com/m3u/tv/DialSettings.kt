@@ -58,6 +58,8 @@ data class DialPreferences(
     val fastMenus: Boolean = true,
     /** Send crash and error reports to the person's GitHub repository when the app starts. */
     val autoSendReports: Boolean = false,
+    /** Back in the player shrinks the video into a corner instead of closing it. */
+    val backToMini: Boolean = true,
 ) {
     companion object {
         val SUBTITLE_SIZE_OPTIONS = listOf(75, 100, 125, 150, 200)
@@ -286,6 +288,7 @@ class DialSettingsStore @Inject constructor(
             .putBoolean(KEY_AUTOPLAY_NEXT, next.autoplayNextEpisode)
             .putBoolean(KEY_FAST_MENUS, next.fastMenus)
             .putBoolean(KEY_AUTO_SEND_REPORTS, next.autoSendReports)
+            .putBoolean(KEY_BACK_TO_MINI, next.backToMini)
             .apply()
     }
 
@@ -375,6 +378,7 @@ class DialSettingsStore @Inject constructor(
             autoplayNextEpisode = prefs.getBoolean(KEY_AUTOPLAY_NEXT, defaults.autoplayNextEpisode),
             fastMenus = prefs.getBoolean(KEY_FAST_MENUS, defaults.fastMenus),
             autoSendReports = prefs.getBoolean(KEY_AUTO_SEND_REPORTS, defaults.autoSendReports),
+            backToMini = prefs.getBoolean(KEY_BACK_TO_MINI, defaults.backToMini),
         )
     }
 
@@ -403,6 +407,7 @@ class DialSettingsStore @Inject constructor(
         const val KEY_AUTOPLAY_NEXT = "autoplay_next_episode"
         const val KEY_FAST_MENUS = "fast_menus"
         const val KEY_AUTO_SEND_REPORTS = "auto_send_reports"
+        const val KEY_BACK_TO_MINI = "back_to_mini"
         const val KEY_LAST_CHANNEL = "last_channel"
         const val KEY_HISTORY = "on_demand_history"
         const val KEY_FAVOURITE_GROUPS = "favourite_groups"
