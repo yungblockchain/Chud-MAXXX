@@ -22,6 +22,31 @@ checked against `player_api.php` before anything is imported, so a typo gets a c
 (unreachable server, wrong login, expired account) instead of a silent empty library. Live TV,
 films and series are then imported by upstream's own `SubscriptionWorker`.
 
+**M3U playlists.** The sign-in form has an "M3U link" switch for plain playlists: the playlist
+link, an optional XMLTV guide link, and a name. The guide then shows that playlist's listings
+(matched on tvg-id). M3U playlists appear on the Account tab with Reload and Remove. A get.php
+link pasted into the M3U field is recognised as Xtream and signs in that way instead, which adds
+films, series and catch-up.
+
+**Provider-sized accounts.** Tested with 50,000 live channels, 130,000 films and 20,000 series:
+the import downloads and saves them in a few minutes with progress on screen ("45,000 so far"),
+tolerates malformed entries and slow servers, and says why if it fails (timeout, connection,
+storage). The Library and Guide then load one category at a time, in the provider's order, so
+the Fire TV never holds the whole catalogue in memory; playlists over 40,000 entries open on
+their first category instead of "All". The Library has a search box across every playlist.
+
+**Play with VLC.** Settings > Player and startup > Play with: the built-in player (Media3
+ExoPlayer), VLC, or choose each time. Outside players get the title and the resume position,
+and the position they report back is saved so "Resume from" still works. Channels that need DRM
+or a media server always use the built-in player.
+
+**Ask Claude.** A tab that uses your own Anthropic API key (get one at console.anthropic.com;
+the Fire TV phone app's keyboard can paste it). The key is checked, then stored encrypted with a
+key from the Android Keystore and only ever sent to api.anthropic.com. Claude can search your
+library, browse categories, see what's on now, read your favourites and start playback, so its
+suggestions are things you can actually watch. Models: Haiku 4.5 (fastest), Sonnet 5.5 (default)
+and Opus 5.5; chats are billed to your Anthropic account.
+
 **Account tab.** Shows each Xtream login's status, expiry date with days left (amber inside a
 week, red once expired), and connections in use out of the maximum. Accounts can be re-checked,
 added or removed.
