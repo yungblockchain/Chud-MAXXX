@@ -108,7 +108,7 @@ enum SelfTest {
         var failure: String?
         var fbo = mpv_opengl_fbo(fbo: Int32(framebuffer), w: Int32(width), h: Int32(height), internal_format: 0)
         var flip: Int32 = 0
-        let deadline = Date().addingTimeInterval(20)
+        let deadline = Date().addingTimeInterval(40)
         var renders = 0
         while Date() < deadline {
             while let event = mpv_wait_event(handle, 0.02), event.pointee.event_id != MPV_EVENT_NONE {
@@ -152,7 +152,8 @@ enum SelfTest {
             }
             var position = 0.0
             mpv_get_property(handle, "time-pos", MPV_FORMAT_DOUBLE, &position)
-            if fileLoaded && position > 1.5 && renders > 10 { break }
+            // Keep going a little past the start: the first frames of a TS stream can be partial.
+            if fileLoaded && position > 2.5 && renders > 40 { break }
         }
         if let failure {
             log("playback failed: \(failure)")
