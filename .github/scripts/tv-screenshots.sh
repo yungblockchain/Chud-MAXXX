@@ -173,7 +173,7 @@ if check "launch"; then
                 open_tab library 12; shot 32-big-library
                 press $RIGHT $RIGHT $OK; sleep 6; shot 33-big-films
                 press $DOWN; hide_keyboard
-                type_text "Film 12345"
+                type_text "Film%s12345"   # %s is a space for "adb shell input text"
                 sleep 4; shot 34-big-search
                 open_tab guide 14;   shot 35-big-guide
                 open_tab home 10;    shot 36-big-home

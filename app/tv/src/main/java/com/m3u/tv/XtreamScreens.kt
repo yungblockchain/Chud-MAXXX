@@ -91,6 +91,13 @@ fun XtreamSignInScreen(
 ) {
     val form by viewModel.form.collectAsStateWithLifecycle()
     val serverFocus = remember { FocusRequester() }
+    // The form is taller than the screen with the Xtream/M3U switch on top; whenever there's
+    // news (checking, progress, done, a problem), scroll down so the message under the button
+    // is on screen.
+    val formScroll = rememberScrollState()
+    LaunchedEffect(form.phase) {
+        if (form.phase != XtreamSignInPhase.Idle) formScroll.animateScrollTo(formScroll.maxValue)
+    }
     val signInFocus = remember { FocusRequester() }
 
     // Wait until nothing covers the screen (e.g. the launch animation) before taking focus.
@@ -145,7 +152,7 @@ fun XtreamSignInScreen(
             modifier = Modifier
                 .weight(1f)
                 .widthIn(max = 560.dp)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(formScroll)
                 .focusGroup()
         ) {
             // Xtream login or a plain M3U link.
