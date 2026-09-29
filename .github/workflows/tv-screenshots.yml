@@ -7,6 +7,10 @@ name: Fire TV screenshots and crash check
 
 on:
   workflow_dispatch:
+  # Check every new APK automatically once the Fire TV build has published it.
+  workflow_run:
+    workflows: [ "Build CHUD STREAMS for Fire TV" ]
+    types: [ completed ]
   push:
     branches: [ "main", "master" ]
     paths:
@@ -22,6 +26,7 @@ concurrency:
 
 jobs:
   emulator:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:

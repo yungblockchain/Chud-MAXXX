@@ -55,3 +55,52 @@
 -dontwarn org.apache.logging.log4j.message.MessageFactory
 -dontwarn org.apache.logging.log4j.spi.ExtendedLogger
 -dontwarn org.apache.logging.log4j.spi.ExtendedLoggerWrapper
+
+
+# CHUD STREAMS: the TV app runs the same data layer as the phone app (Ktor/Netty server for
+# phone pairing, kotlinx.serialization, Retrofit, DLNA), but its release rules had none of the
+# phone app's keep rules. Without them R8 stripped Netty's NioServerSocketChannel constructor,
+# which Netty creates by reflection, and the app crashed a second after launch.
+# These are copied from app/smartphone/proguard-rules.pro.
+-dontwarn io.netty.internal.tcnative.ResultCallback
+-dontwarn io.netty.internal.tcnative.SSLSession
+-dontwarn io.netty.pkitesting.**
+-if @kotlinx.serialization.Serializable class **
+-keepclassmembers class <1> {
+    static <1>$Companion Companion;
+}
+-if @kotlinx.serialization.Serializable class ** {
+    static **$* *;
+}
+-keepclassmembers class <2>$<3> {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-if @kotlinx.serialization.Serializable class ** {
+    public static ** INSTANCE;
+}
+-keepclassmembers class <1> {
+    public static <1> INSTANCE;
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-keepattributes RuntimeVisibleAnnotations,AnnotationDefault
+-dontnote kotlinx.serialization.**
+-keepclassmembers public class **$$serializer {
+    private ** descriptor;
+}
+-keepattributes Signature, InnerClasses, EnclosingMethod
+-keepattributes RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations
+-keepattributes AnnotationDefault
+-keepclassmembers,allowshrinking,allowobfuscation interface * {
+    @retrofit2.http.* <methods>;
+}
+-if interface * { @retrofit2.http.* <methods>; }
+-keep,allowobfuscation interface <1>
+-if interface * { @retrofit2.http.* <methods>; }
+-keep,allowobfuscation interface * extends <1>
+-keep,allowobfuscation,allowshrinking interface retrofit2.Call
+-keep,allowobfuscation,allowshrinking class retrofit2.Response
+-keep,allowobfuscation,allowshrinking class kotlin.coroutines.Continuation
+-keep class org.jupnp.** { *; }
+-keep class io.netty.** {*; }
+-keep class io.ktor.** {*; }
+-keep class kotlin.reflect.jvm.internal.** { *; }
