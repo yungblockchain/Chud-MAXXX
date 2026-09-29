@@ -132,6 +132,7 @@ enum TourRunner {
             check("subtitle-tracks", subs.count >= 2, subs.map { $0.label }.joined(separator: "; "))
             check("forced-subtitles", player?.selectedSubtitle?.isForced == true, "selected: \(player?.selectedSubtitle?.label ?? "none")")
             await wait(1.5)
+            log("OpenGL renderer: \(player?.gl?.rendererName ?? "none") (\(player?.gl?.accelerated == true ? "GPU" : "software"))")
             log("renderer after start: " + MPVGLRenderer.diagnostics)
             await wait(3)
             log("renderer 3 s later: " + MPVGLRenderer.diagnostics)
@@ -150,8 +151,9 @@ enum TourRunner {
                     player?.setOption("scale", "lanczos")
                     player?.setOption("cscale", "lanczos")
                 }
+                let glName = "\(player?.gl?.rendererName ?? "no OpenGL")\(player?.gl?.accelerated == false ? ", simple scaling" : "")"
                 check("video-picture", highQuality || plain,
-                      highQuality ? "clean picture" : (plain ? "clean with the bilinear scaler (VM OpenGL can't run lanczos)" : "no clean picture"))
+                      (highQuality ? "clean picture" : (plain ? "clean only with the bilinear scaler" : "no clean picture")) + " (\(glName))")
             }
             // Show the subtitle panel.
             postKey("s")

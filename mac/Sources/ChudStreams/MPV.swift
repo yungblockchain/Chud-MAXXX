@@ -316,6 +316,14 @@ final class MPVPlayer: ObservableObject, Identifiable {
         core?.onEvents = { [weak self] events in self?.handle(events) }
         if !metal, let core {
             gl = MPVGLRenderer(core: core)
+            if let gl, !gl.accelerated {
+                // Apple's software OpenGL can't run mpv's high-quality scaling filters (they come
+                // out as a grid of black lines) and is slow anyway, so use the simple ones.
+                ErrorLog.note("Player: software OpenGL (\(gl.rendererName)), using simple scaling")
+                for name in ["scale", "cscale", "dscale"] { core.set(name, "bilinear") }
+                for name in ["sigmoid-upscaling", "correct-downscaling", "linear-downscaling", "deband"] { core.set(name, "no") }
+                core.set("dither-depth", "no")
+            }
             if gl == nil {
                 // No OpenGL: fall back to mpv's own Metal output rather than no picture at all.
                 ErrorLog.record("Player", detail: "OpenGL render context unavailable")
@@ -532,6 +540,11 @@ final class MPVGLRenderer {
     static var skips = 0
     static var draws = 0
 
+    /// The OpenGL renderer's name, and whether it's a GPU (false for Apple's software renderer,
+    /// which virtual Macs and some broken setups fall back to).
+    let rendererName: String
+    let accelerated: Bool
+
     init?(core: MPVCore) {
         guard let handle = core.handle, let made = MPVGLRenderer.makeContext() else { return nil }
         let format = made.0
@@ -540,6 +553,9 @@ final class MPVGLRenderer {
         self.context = context
         CGLSetCurrentContext(context)
         defer { CGLSetCurrentContext(nil) }
+        let name = glGetString(GLenum(GL_RENDERER)).map { String(cString: $0) } ?? "unknown"
+        rendererName = name
+        accelerated = !name.lowercased().contains("software")
         var initParams = mpv_opengl_init_params(get_proc_address: mpvGetProcAddress, get_proc_address_ctx: nil)
         let apiType = strdup(MPV_RENDER_API_TYPE_OPENGL)
         defer { free(apiType) }
