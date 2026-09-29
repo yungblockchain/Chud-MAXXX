@@ -480,8 +480,12 @@ final class AppModel: ObservableObject {
 
 /// Shared animation timings, so the whole app moves the same way.
 enum Motion {
-    static let page = Animation.spring(response: 0.42, dampingFraction: 0.86)
-    static let quick = Animation.spring(response: 0.26, dampingFraction: 0.9)
-    static let hover = Animation.easeOut(duration: 0.14)
-    static let fade = Animation.easeInOut(duration: 0.22)
+    /// The screenshot tour runs on a Mac with no real display, where animations never finish,
+    /// so it runs without them.
+    private static let still = ProcessInfo.processInfo.environment["CHUD_TOUR"] != nil
+
+    static let page: Animation? = still ? nil : .spring(response: 0.42, dampingFraction: 0.86)
+    static let quick: Animation? = still ? nil : .spring(response: 0.26, dampingFraction: 0.9)
+    static let hover: Animation? = still ? nil : .easeOut(duration: 0.14)
+    static let fade: Animation? = still ? nil : .easeInOut(duration: 0.22)
 }

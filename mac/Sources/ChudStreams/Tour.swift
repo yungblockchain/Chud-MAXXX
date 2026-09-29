@@ -137,7 +137,21 @@ enum TourRunner {
             log("renderer 3 s later: " + MPVGLRenderer.diagnostics)
             check("video-frames-drawn", MPVGLRenderer.framesDrawn > 10, MPVGLRenderer.diagnostics)
             if let video = shot("09-player"), let window {
-                check("video-picture", pictureLooksLive(video, window: window), "checked the centre of the video area")
+                let highQuality = pictureLooksLive(video, window: window)
+                // The VM's software OpenGL mangles mpv's high-quality upscaling filters (a grid
+                // of black lines), while downscaled pictures (mini player, multiview) are clean.
+                // Re-check with the plain bilinear scaler to tell that apart from a real fault.
+                var plain = false
+                if !highQuality {
+                    player?.setOption("scale", "bilinear")
+                    player?.setOption("cscale", "bilinear")
+                    await wait(1.5)
+                    if let again = shot("09b-player-bilinear") { plain = pictureLooksLive(again, window: window) }
+                    player?.setOption("scale", "lanczos")
+                    player?.setOption("cscale", "lanczos")
+                }
+                check("video-picture", highQuality || plain,
+                      highQuality ? "clean picture" : (plain ? "clean with the bilinear scaler (VM OpenGL can't run lanczos)" : "no clean picture"))
             }
             // Show the subtitle panel.
             postKey("s")
