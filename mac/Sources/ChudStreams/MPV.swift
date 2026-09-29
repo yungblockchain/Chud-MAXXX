@@ -240,7 +240,8 @@ final class MPVCore: @unchecked Sendable {
     }
 
     /// Stops mpv and frees it. Any render context must be freed first (MPVPlayer does that).
-    func destroy() {
+    /// `keepAlive` (a Metal layer mpv draws into) stays alive until mpv has fully stopped.
+    func destroy(keepAlive: AnyObject? = nil) {
         guard let handle else { return }
         mpv_set_wakeup_callback(handle, nil, nil)
         self.handle = nil
@@ -248,6 +249,7 @@ final class MPVCore: @unchecked Sendable {
         let retained = Unmanaged.passUnretained(self)
         queue.async {
             mpv_terminate_destroy(handle)
+            withExtendedLifetime(keepAlive) {}
             retained.release()
         }
     }
@@ -290,14 +292,33 @@ final class MPVPlayer: ObservableObject, Identifiable {
     /// False if mpv couldn't start (the app then falls back to Apple's player).
     var isAvailable: Bool { core != nil }
 
-    init(options: [(String, String)]) {
-        core = MPVCore(options: options)
+    /// For the Metal renderer: the layer mpv draws into by itself (gpu-next through MoltenVK).
+    let metalLayer: MPVMetalLayer?
+    /// The options this player was started with, so a settings change can tell it needs a new one.
+    let signature: String
+
+    init(options: [(String, String)], metal: Bool = false) {
+        signature = options.map { "\($0.0)=\($0.1)" }.joined(separator: ";") + (metal ? ";metal" : "")
+        var all = options
+        if metal {
+            let layer = MPVMetalLayer()
+            metalLayer = layer
+            // mpv takes the layer's address as a number ("wid").
+            let address = Int(bitPattern: Unmanaged.passUnretained(layer).toOpaque())
+            all.append(("wid", String(address)))
+        } else {
+            metalLayer = nil
+            all = all.map { $0.0 == "vo" ? ("vo", "libmpv") : $0 }
+        }
+        core = MPVCore(options: all)
         core?.onEvents = { [weak self] events in self?.handle(events) }
     }
 
+    var usesMetal: Bool { metalLayer != nil }
+
     deinit {
         layer?.detach()
-        core?.destroy()
+        core?.destroy(keepAlive: metalLayer)
     }
 
     var audioTracks: [MPVTrack] { tracks.filter { $0.type == "audio" } }
@@ -372,7 +393,8 @@ final class MPVPlayer: ObservableObject, Identifiable {
     func shutdown() {
         layer?.detach()
         layer = nil
-        core?.destroy()
+        metalLayer?.removeFromSuperlayer()
+        core?.destroy(keepAlive: metalLayer)
         core = nil
     }
 
@@ -390,9 +412,15 @@ final class MPVPlayer: ObservableObject, Identifiable {
                 loaded = true
                 failure = nil
             case .endFile(let reason, let error):
-                if reason == .finished { ended = true }
-                if reason == .error { failure = error ?? "The stream couldn't be played." }
-                onEnd?(reason, error)
+                if reason == .finished {
+                    if !ended {
+                        ended = true
+                        onEnd?(.finished, nil)
+                    }
+                } else {
+                    if reason == .error { failure = error ?? "The stream couldn't be played." }
+                    onEnd?(reason, error)
+                }
             case .log(let level, let text):
                 onLog?(level, text)
             }
@@ -406,7 +434,12 @@ final class MPVPlayer: ObservableObject, Identifiable {
         case "pause": paused = (value as? Bool) ?? false
         case "paused-for-cache": buffering = (value as? Bool) ?? false
         case "seeking": seeking = (value as? Bool) ?? false
-        case "eof-reached": if (value as? Bool) == true { ended = true }
+        case "eof-reached":
+            // With keep-open, reaching the end pauses on the last frame instead of ending the file.
+            if (value as? Bool) == true, loaded, !ended {
+                ended = true
+                onEnd?(.finished, nil)
+            }
         case "demuxer-cache-duration": cachedSeconds = (value as? Double) ?? 0
         case "cache-buffering-state": bufferPercent = Int((value as? Int64) ?? 0)
         case "track-list": tracks = MPVPlayer.parseTracks(value)
@@ -647,41 +680,113 @@ final class MPVGLLayer: CAOpenGLLayer {
     }
 }
 
-/// An NSView backed by MPVGLLayer.
-final class MPVVideoView: NSView {
-    let videoLayer = MPVGLLayer()
-    private(set) weak var player: MPVPlayer?
+/// A CAMetalLayer for mpv's gpu-next renderer. MoltenVK briefly asks for a 1×1 drawable while
+/// finishing; ignoring that keeps the picture from blinking.
+final class MPVMetalLayer: CAMetalLayer {
+    override init() {
+        super.init()
+        commonInit()
+    }
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
+    override init(layer: Any) {
+        super.init(layer: layer)
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        wantsLayer = true
+        commonInit()
     }
 
-    override func makeBackingLayer() -> CALayer { videoLayer }
-    override var wantsUpdateLayer: Bool { true }
-    override func updateLayer() {}
+    private func commonInit() {
+        backgroundColor = NSColor.black.cgColor
+        framebufferOnly = true
+        wantsExtendedDynamicRangeContent = true
+        contentsGravity = .resizeAspect
+    }
+
+    override var drawableSize: CGSize {
+        get { super.drawableSize }
+        set {
+            if Int(newValue.width) > 1 && Int(newValue.height) > 1 { super.drawableSize = newValue }
+        }
+    }
+}
+
+/// Shows one MPVPlayer's picture. OpenGL players draw into this view's own layer; Metal players
+/// bring their layer, which moves here (so the mini player and full screen share one picture).
+final class MPVVideoView: NSView {
+    private let glLayer = MPVGLLayer()
+    private(set) weak var player: MPVPlayer?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.masksToBounds = true
+        glLayer.frame = bounds
+        layer?.addSublayer(glLayer)
+    }
+
     override var isOpaque: Bool { true }
+    override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let scale = window?.backingScaleFactor ?? 2
+        glLayer.frame = bounds
+        glLayer.contentsScale = scale
+        if let metal = player?.metalLayer, metal.superlayer === layer {
+            metal.frame = bounds
+            metal.contentsScale = scale
+            metal.drawableSize = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        }
+        CATransaction.commit()
+        glLayer.setNeedsDisplay()
+    }
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        videoLayer.contentsScale = window?.backingScaleFactor ?? 2
-        videoLayer.setNeedsDisplay()
+        needsLayout = true
     }
 
-    func show(_ player: MPVPlayer) {
+    func show(_ player: MPVPlayer?) {
         guard self.player !== player else { return }
-        if let old = self.player { old.detach(videoLayer) }
+        clear()
+        guard let player else { return }
         self.player = player
-        player.attach(videoLayer)
+        if let metal = player.metalLayer {
+            metal.removeFromSuperlayer()
+            layer?.addSublayer(metal)
+            glLayer.isHidden = true
+            needsLayout = true
+        } else {
+            glLayer.isHidden = false
+            player.attach(glLayer)
+        }
     }
 
     func clear() {
-        if let player { player.detach(videoLayer) }
-        player = nil
+        guard let player else { return }
+        if let metal = player.metalLayer {
+            if metal.superlayer === layer { metal.removeFromSuperlayer() }
+        } else {
+            player.detach(glLayer)
+        }
+        self.player = nil
+    }
+
+    deinit {
+        glLayer.detach()
     }
 }

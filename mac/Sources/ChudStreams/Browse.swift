@@ -1,694 +1,460 @@
 import SwiftUI
 
-/// Categories and items for one kind of content, loaded a category at a time and cached.
+// Browsing a source: categories on the left (in the viewer's order, hidden ones left out), the
+// channels or posters of the chosen category on the right. Once a source's full list has
+// downloaded, every category opens instantly and "All" is available; before that, categories
+// load one at a time from the provider.
+
+enum BrowseSpecial {
+    static let all = "__all__"
+    static let favourites = "__favourites__"
+    static let recent = "__recent__"
+}
+
+enum BrowseSort: String, CaseIterable, Identifiable {
+    case provider = "Provider order"
+    case name = "A to Z"
+    case added = "Newest added"
+    case rating = "Top rated"
+    var id: String { rawValue }
+}
+
+/// Loads the chosen category of one kind of content for the active source.
 @MainActor
-final class BrowserState: ObservableObject {
+final class BrowseLoader: ObservableObject {
     let kind: ContentKind
-    @Published var categories: [ContentCategory] = []
-    @Published var selectedCategory: String? = nil
-    @Published var items: [MediaItem] = []
-    @Published var loading = false
-    @Published var error: String? = nil
-    private var cache: [String: [MediaItem]] = [:]
+    @Published var selected: String? = nil
+    @Published private(set) var items: [MediaItem] = []
+    @Published private(set) var loading = false
+    @Published private(set) var error: String? = nil
+    private var loadedKey = ""
 
     init(kind: ContentKind) {
         self.kind = kind
+        selected = UserDefaults.standard.string(forKey: "browse.category.\(kind.rawValue)")
     }
 
-    func loadCategories(client: XtreamClient?) async {
-        guard let client, categories.isEmpty else { return }
+    func select(_ id: String) {
+        selected = id
+        UserDefaults.standard.set(id, forKey: "browse.category.\(kind.rawValue)")
+    }
+
+    /// The categories to show, with the special entries first.
+    func categories(_ catalog: CatalogStore, userData: UserData) -> [ContentCategory] {
+        var list: [ContentCategory] = []
+        if kind == .live { list.append(ContentCategory(id: BrowseSpecial.favourites, name: "★ Favourites")) }
+        if catalog.hasFullList(kind) {
+            if kind != .live { list.append(ContentCategory(id: BrowseSpecial.recent, name: "Recently added")) }
+            list.append(ContentCategory(id: BrowseSpecial.all, name: "All \(kind == .live ? "channels" : (kind == .movie ? "films" : "series"))"))
+        }
+        list += userData.arranged(catalog.categories[kind] ?? [], source: catalog.source.id, kind: kind)
+        return list
+    }
+
+    func load(_ catalog: CatalogStore, userData: UserData) async {
+        let cats = categories(catalog, userData: userData)
+        if cats.count <= 1 || (cats.count <= 2 && !catalog.hasFullList(kind)) {
+            _ = await catalog.loadCategories(kind)
+        }
+        let available = categories(catalog, userData: userData)
+        var target = selected ?? ""
+        if !available.contains(where: { $0.id == target }) {
+            let firstReal = available.first { $0.id != BrowseSpecial.favourites && $0.id != BrowseSpecial.recent }
+            target = firstReal?.id ?? available.first?.id ?? ""
+            selected = target
+        }
+        let key = "\(catalog.source.id)|\(target)|\(catalog.version)|\(userData.favourites.items.count)"
+        guard key != loadedKey, !target.isEmpty else { return }
         loading = true
-        do {
-            categories = try await client.categories(kind)
-            error = nil
-            if selectedCategory == nil, let first = categories.first {
-                await select(first.id, client: client)
+        error = nil
+        defer { loading = false }
+        switch target {
+        case BrowseSpecial.favourites:
+            items = userData.favourites.items.filter { $0.kind == kind && $0.source == catalog.source.id }
+        case BrowseSpecial.all:
+            let hidden = userData.arrangement(catalog.source.id, kind).hidden
+            items = catalog.all(kind).filter { !hidden.contains($0.categoryId ?? "") }
+        case BrowseSpecial.recent:
+            items = catalog.recentlyAdded(kind, limit: 200)
+        default:
+            do {
+                items = try await catalog.items(kind, category: target)
+            } catch {
+                items = []
+                self.error = (error as? LocalizedError)?.errorDescription ?? "Couldn't load this category. Try again in a moment."
+                return
             }
-        } catch {
-            self.error = "Couldn't load the categories. Check your connection and try again."
         }
-        loading = false
-    }
-
-    func select(_ id: String, client: XtreamClient?) async {
-        selectedCategory = id
-        if let cached = cache[id] {
-            items = cached
-            return
-        }
-        guard let client else { return }
-        loading = true
-        items = []
-        do {
-            let loaded = try await client.items(kind, category: id)
-            cache[id] = loaded
-            if selectedCategory == id { items = loaded }
-            error = nil
-        } catch {
-            self.error = "Couldn't load this category. Try again in a moment."
-        }
-        loading = false
+        if selected == target { loadedKey = key }
     }
 }
 
-
+/// The category list down the left.
 @MainActor
-private struct CategoryColumn: View {
-    @ObservedObject var state: BrowserState
-    let client: XtreamClient?
+struct CategoryColumn: View {
+    @EnvironmentObject private var userData: UserData
+    @ObservedObject var loader: BrowseLoader
+    @ObservedObject var catalog: CatalogStore
+    @State private var editing = false
+    @State private var filter = ""
 
     var body: some View {
-        List(selection: Binding(
-            get: { state.selectedCategory },
-            set: { id in
-                if let id { Task { await state.select(id, client: client) } }
+        let all = loader.categories(catalog, userData: userData)
+        let shown = filter.isEmpty ? all : all.filter { $0.name.localizedCaseInsensitiveContains(filter) }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Categories").font(NeonFont.display(13)).foregroundColor(Neon.textSecondary)
+                Spacer()
+                Button { editing = true } label: { Image(systemName: "slider.horizontal.3") }
+                    .buttonStyle(.plain)
+                    .foregroundColor(Neon.cyan)
+                    .help("Reorder or hide categories")
             }
-        )) {
-            ForEach(state.categories) { category in
-                Text(category.name)
-                    .font(NeonFont.body(14))
-                    .lineLimit(2)
-                    .tag(category.id)
+            .padding(.horizontal, 12)
+            .padding(.top, 20)
+            if all.count > 12 {
+                TextField("Find a category", text: $filter)
+                    .textFieldStyle(.plain)
+                    .font(NeonFont.body(13))
+                    .padding(7)
+                    .neonPanel()
+                    .padding(.horizontal, 10)
+            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(shown) { category in
+                        CategoryButton(name: category.name, selected: loader.selected == category.id) {
+                            withAnimation(Motion.quick) { loader.select(category.id) }
+                        }
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 12)
             }
         }
-        .scrollContentBackground(.hidden)
+        .frame(width: 250)
         .background(Neon.backgroundSoft.opacity(0.6))
-        .frame(width: 240)
+        .sheet(isPresented: $editing) {
+            CategoryManager(catalog: catalog, kind: loader.kind)
+                .environmentObject(userData)
+        }
     }
 }
 
-// MARK: Live TV
+@MainActor
+private struct CategoryButton: View {
+    let name: String
+    let selected: Bool
+    let action: () -> Void
+    @State private var hovering = false
 
+    var body: some View {
+        Button(action: action) {
+            Text(name)
+                .font(NeonFont.body(14, bold: selected))
+                .foregroundColor(selected ? Neon.onCyan : (hovering ? Neon.cyan : Neon.text))
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(HudShape(cut: 6).fill(selected ? Neon.cyan : (hovering ? Neon.surface : Color.clear)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { inside in withAnimation(Motion.hover) { hovering = inside } }
+    }
+}
+
+/// Reorder and hide one source's categories.
+@MainActor
+struct CategoryManager: View {
+    @EnvironmentObject private var userData: UserData
+    @Environment(\.dismiss) private var dismiss
+    let catalog: CatalogStore
+    let kind: ContentKind
+    @State private var order: [ContentCategory] = []
+
+    var body: some View {
+        let hidden = userData.arrangement(catalog.source.id, kind).hidden
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                NeonTitle(text: "Arrange categories", size: 22)
+                Spacer()
+                Button("Reset") {
+                    userData.resetArrangement(source: catalog.source.id, kind: kind)
+                    order = userData.arranged(catalog.categories[kind] ?? [], source: catalog.source.id, kind: kind, includeHidden: true)
+                }
+                .buttonStyle(NeonButtonStyle())
+                Button("Done") { dismiss() }
+                    .buttonStyle(NeonButtonStyle(prominent: true))
+                    .keyboardShortcut(.defaultAction)
+            }
+            Text("Drag to reorder. Untick a category to hide it from browsing, the guide and \"All\".")
+                .font(NeonFont.body(13))
+                .foregroundColor(Neon.textSecondary)
+            List {
+                ForEach(order) { category in
+                    HStack(spacing: 12) {
+                        Image(systemName: "line.3.horizontal").foregroundColor(Neon.textMuted)
+                        Toggle(isOn: Binding(
+                            get: { !hidden.contains(category.id) },
+                            set: { visible in userData.setHidden(category.id, hidden: !visible, source: catalog.source.id, kind: kind) }
+                        )) {
+                            Text(category.name)
+                                .font(NeonFont.body(14))
+                                .foregroundColor(hidden.contains(category.id) ? Neon.textMuted : Neon.text)
+                        }
+                        .toggleStyle(.checkbox)
+                        Spacer()
+                        Button { move(category, by: -1) } label: { Image(systemName: "chevron.up") }.buttonStyle(.plain)
+                        Button { move(category, by: 1) } label: { Image(systemName: "chevron.down") }.buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 2)
+                }
+                .onMove { source, destination in
+                    order.move(fromOffsets: source, toOffset: destination)
+                    save()
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Neon.surface.opacity(0.5))
+            HStack {
+                Button("Show all") {
+                    for category in order { userData.setHidden(category.id, hidden: false, source: catalog.source.id, kind: kind) }
+                }
+                .buttonStyle(NeonButtonStyle())
+                Button("Hide all") {
+                    for category in order { userData.setHidden(category.id, hidden: true, source: catalog.source.id, kind: kind) }
+                }
+                .buttonStyle(NeonButtonStyle())
+                Spacer()
+                Text("\(order.count - hidden.count) of \(order.count) shown").font(NeonFont.body(13)).foregroundColor(Neon.textMuted)
+            }
+        }
+        .padding(24)
+        .frame(width: 560, height: 620)
+        .background(NeonBackdrop())
+        .onAppear {
+            order = userData.arranged(catalog.categories[kind] ?? [], source: catalog.source.id, kind: kind, includeHidden: true)
+        }
+    }
+
+    private func move(_ category: ContentCategory, by step: Int) {
+        guard let index = order.firstIndex(of: category) else { return }
+        let target = index + step
+        guard target >= 0, target < order.count else { return }
+        withAnimation(Motion.quick) { order.swapAt(index, target) }
+        save()
+    }
+
+    private func save() {
+        userData.setOrder(order.map { $0.id }, source: catalog.source.id, kind: kind)
+    }
+}
+
+// MARK: - Live TV
 
 @MainActor
 struct LiveTVView: View {
     @EnvironmentObject private var model: AppModel
-    @StateObject private var state = BrowserState(kind: .live)
+
+    var body: some View {
+        if let catalog = model.catalog {
+            LiveTVContent(catalog: catalog)
+                .id(catalog.source.id)
+        } else {
+            EmptyState(symbol: "tv", title: "No source", message: "Add an Xtream login or an M3U playlist in Settings.")
+        }
+    }
+}
+
+@MainActor
+private struct LiveTVContent: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var userData: UserData
+    @EnvironmentObject private var playback: PlaybackCenter
+    @ObservedObject var catalog: CatalogStore
+    @StateObject private var loader = BrowseLoader(kind: .live)
     @State private var query = ""
 
     private var shown: [MediaItem] {
-        query.isEmpty ? state.items : state.items.filter { $0.name.localizedCaseInsensitiveContains(query) }
+        query.isEmpty ? loader.items : loader.items.filter { $0.name.localizedCaseInsensitiveContains(query) }
     }
 
     var body: some View {
         HStack(spacing: 0) {
-            CategoryColumn(state: state, client: model.client)
+            CategoryColumn(loader: loader, catalog: catalog)
             VStack(alignment: .leading, spacing: 10) {
-                NeonTitle(text: "Live TV")
-                StatusText(state: state, empty: "No channels in this category.")
-                List {
-                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, item in
-                        Button {
-                            model.playLive(item, in: shown)
-                        } label: {
-                            ChannelRow(item: item, number: index + 1)
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    NeonTitle(text: "Live TV")
+                    Text("\(formatCount(shown.count)) channels")
+                        .font(NeonFont.body(13))
+                        .foregroundColor(Neon.textMuted)
+                    Spacer()
+                    TextField("Filter this list", text: $query)
+                        .textFieldStyle(.plain)
+                        .font(NeonFont.body(14))
+                        .padding(8)
+                        .neonPanel()
+                        .frame(width: 240)
+                    Button { playback.openMultiview() } label: { Label("Multiview", systemImage: "rectangle.split.2x2") }
+                        .buttonStyle(NeonButtonStyle())
+                        .help("Watch up to four channels at once")
+                }
+                CatalogStatusLine(phase: catalog.phases[.live], noun: "channels")
+                if let error = loader.error {
+                    Text(error).font(NeonFont.body(13)).foregroundColor(Neon.danger)
+                }
+                if loader.loading && loader.items.isEmpty {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if shown.isEmpty {
+                    EmptyState(
+                        symbol: loader.selected == BrowseSpecial.favourites ? "star" : "tv",
+                        title: loader.selected == BrowseSpecial.favourites ? "No favourite channels yet" : "Nothing here",
+                        message: loader.selected == BrowseSpecial.favourites
+                            ? "Right-click any channel and choose Add to Favourites."
+                            : "This category is empty, or nothing matches the filter."
+                    )
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 6) {
+                            ForEach(Array(shown.enumerated()), id: \.element.id) { index, item in
+                                Button {
+                                    model.playLive(item, in: shown)
+                                } label: {
+                                    ChannelRow(item: item, number: item.number ?? (index + 1), playing: playback.current?.item?.id == item.id)
+                                }
+                                .buttonStyle(.plain)
+                                .contextMenu { MediaContextMenu(item: item, list: shown) }
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .contextMenu { FavoriteMenuItem(item: item) }
+                        .padding(.vertical, 6)
+                        .padding(.trailing, 6)
                     }
                 }
-                .scrollContentBackground(.hidden)
             }
             .padding(.horizontal, 24)
             .padding(.top, 24)
         }
-        .searchable(text: $query, prompt: "Search channels in this category")
-        .task { await state.loadCategories(client: model.client) }
-    }
-}
-
-
-@MainActor
-private struct ChannelRow: View {
-    @EnvironmentObject private var model: AppModel
-    let item: MediaItem
-    let number: Int
-    @State private var hovering = false
-
-    var body: some View {
-        let now = Date()
-        let programmes = model.epg[item.streamId] ?? []
-        let current = programmes.first { $0.isOn(at: now) }
-        let next = programmes.first { $0.start >= (current?.end ?? now) }
-        HStack(spacing: 14) {
-            Text("\(number)")
-                .font(NeonFont.display(15))
-                .foregroundColor(hovering ? Neon.onCyan : Neon.cyan)
-                .frame(width: 44, alignment: .trailing)
-            RemoteImage(url: item.icon, contentMode: .fit)
-                .frame(width: 40, height: 40)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.name)
-                    .font(NeonFont.body(15, bold: true))
-                    .foregroundColor(hovering ? Neon.onCyan : Neon.text)
-                    .lineLimit(1)
-                if let current {
-                    Text("Now: \(current.title)")
-                        .font(NeonFont.body(13))
-                        .foregroundColor(hovering ? Neon.onCyan.opacity(0.8) : Neon.textSecondary)
-                        .lineLimit(1)
-                    ProgressView(value: now.timeIntervalSince(current.start), total: current.end.timeIntervalSince(current.start))
-                        .tint(hovering ? Neon.onCyan : Neon.cyan)
-                }
-                if let next {
-                    Text("Next \(next.start.formatted(date: .omitted, time: .shortened)): \(next.title)")
-                        .font(NeonFont.body(12))
-                        .foregroundColor(hovering ? Neon.onCyan.opacity(0.7) : Neon.textMuted)
-                        .lineLimit(1)
-                }
-            }
-            Spacer()
-            if model.isFavorite(item) {
-                Image(systemName: "star.fill").foregroundColor(hovering ? Neon.onCyan : Neon.magenta)
-            }
+        .task(id: "\(loader.selected ?? "")|\(catalog.version)|\(userData.favourites.items.count)") {
+            await loader.load(catalog, userData: userData)
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 10)
-        .background(HudShape().fill(hovering ? Neon.cyan : Neon.surface.opacity(0.7)))
-        .overlay(HudShape().stroke(Neon.cyan.opacity(hovering ? 1 : 0.15), lineWidth: 1))
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .task(id: item.streamId) { await model.loadEPG(for: item.streamId) }
     }
 }
 
-// MARK: Films and series
-
+// MARK: - Films and series
 
 @MainActor
 struct LibraryBrowser: View {
     @EnvironmentObject private var model: AppModel
     let kind: ContentKind
-    @StateObject private var state: BrowserState
-    @State private var query = ""
-    @State private var selected: MediaItem? = nil
 
-    init(kind: ContentKind) {
+    var body: some View {
+        if let catalog = model.catalog {
+            if catalog.kinds.contains(kind) {
+                LibraryBrowserContent(catalog: catalog, kind: kind)
+                    .id("\(catalog.source.id)-\(kind.rawValue)")
+            } else {
+                EmptyState(symbol: kind == .series ? "square.stack.3d.up" : "film",
+                           title: "Not in this playlist",
+                           message: "M3U playlists don't list series separately. Switch to an Xtream source to browse series.")
+            }
+        } else {
+            EmptyState(symbol: "film", title: "No source", message: "Add an Xtream login or an M3U playlist in Settings.")
+        }
+    }
+}
+
+@MainActor
+private struct LibraryBrowserContent: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var userData: UserData
+    @ObservedObject var catalog: CatalogStore
+    let kind: ContentKind
+    @StateObject private var loader: BrowseLoader
+    @State private var query = ""
+    @State private var sort: BrowseSort = .provider
+
+    init(catalog: CatalogStore, kind: ContentKind) {
+        self.catalog = catalog
         self.kind = kind
-        _state = StateObject(wrappedValue: BrowserState(kind: kind))
+        _loader = StateObject(wrappedValue: BrowseLoader(kind: kind))
     }
 
     private var shown: [MediaItem] {
-        query.isEmpty ? state.items : state.items.filter { $0.name.localizedCaseInsensitiveContains(query) }
+        let filtered = query.isEmpty ? loader.items : loader.items.filter { $0.name.localizedCaseInsensitiveContains(query) }
+        switch sort {
+        case .provider: return filtered
+        case .name: return filtered.sorted { $0.cleanName.localizedCaseInsensitiveCompare($1.cleanName) == .orderedAscending }
+        case .added: return filtered.sorted { ($0.added ?? 0) > ($1.added ?? 0) }
+        case .rating: return filtered.sorted { (Double($0.rating ?? "") ?? 0) > (Double($1.rating ?? "") ?? 0) }
+        }
     }
 
     var body: some View {
         HStack(spacing: 0) {
-            CategoryColumn(state: state, client: model.client)
+            CategoryColumn(loader: loader, catalog: catalog)
             VStack(alignment: .leading, spacing: 10) {
-                NeonTitle(text: kind == .movie ? "Films" : "Series")
-                StatusText(state: state, empty: "Nothing in this category.")
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 18)], spacing: 22) {
-                        ForEach(shown) { item in
-                            PosterCard(item: item) { selected = item }
-                                .contextMenu { FavoriteMenuItem(item: item) }
-                        }
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    NeonTitle(text: kind == .movie ? "Films" : "Series")
+                    Text("\(formatCount(shown.count)) titles").font(NeonFont.body(13)).foregroundColor(Neon.textMuted)
+                    Spacer()
+                    Picker("Sort", selection: $sort) {
+                        ForEach(BrowseSort.allCases) { option in Text(option.rawValue).tag(option) }
                     }
-                    .padding(.vertical, 8)
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(width: 150)
+                    TextField("Filter this list", text: $query)
+                        .textFieldStyle(.plain)
+                        .font(NeonFont.body(14))
+                        .padding(8)
+                        .neonPanel()
+                        .frame(width: 220)
+                }
+                CatalogStatusLine(phase: catalog.phases[kind], noun: kind == .movie ? "films" : "series")
+                if let error = loader.error {
+                    Text(error).font(NeonFont.body(13)).foregroundColor(Neon.danger)
+                }
+                if loader.loading && loader.items.isEmpty {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if shown.isEmpty {
+                    EmptyState(symbol: kind == .movie ? "film" : "square.stack.3d.up", title: "Nothing here",
+                               message: "This category is empty, or nothing matches the filter.")
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 20)], spacing: 24) {
+                            ForEach(shown) { item in
+                                PosterCard(item: item, progress: progress(item)) { model.open(item) }
+                            }
+                        }
+                        .padding(.vertical, 10)
+                        .padding(.trailing, 8)
+                    }
                 }
             }
             .padding(.horizontal, 24)
             .padding(.top, 24)
         }
-        .searchable(text: $query, prompt: kind == .movie ? "Search films in this category" : "Search series in this category")
-        .task { await state.loadCategories(client: model.client) }
-        .sheet(item: $selected) { item in
-            DetailsView(item: item)
-                .environmentObject(model)
-        }
-    }
-}
-
-
-@MainActor
-struct PosterCard: View {
-    let item: MediaItem
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 8) {
-                // A 2:3 box that the poster fills and is cropped to.
-                Color.clear
-                    .aspectRatio(2.0 / 3.0, contentMode: .fit)
-                    .overlay(RemoteImage(url: item.icon, contentMode: .fill))
-                    .clipShape(HudShape(cut: 12))
-                    .overlay(HudShape(cut: 12).stroke(Neon.cyan.opacity(hovering ? 1 : 0.2), lineWidth: hovering ? 2 : 1))
-                    .shadow(color: Neon.cyan.opacity(hovering ? 0.5 : 0), radius: 12)
-                Text(item.name)
-                    .font(NeonFont.body(13, bold: true))
-                    .foregroundColor(hovering ? Neon.cyan : Neon.text)
-                    .lineLimit(2)
-            }
-            .scaleEffect(hovering ? 1.03 : 1)
-            .animation(.easeOut(duration: 0.12), value: hovering)
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-    }
-}
-
-
-@MainActor
-struct DetailsView: View {
-    @EnvironmentObject private var model: AppModel
-    @Environment(\.dismiss) private var dismiss
-    let item: MediaItem
-    @State private var film: VodInfo? = nil
-    @State private var series: SeriesInfo? = nil
-    @State private var season = ""
-    @State private var loading = true
-
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            NeonBackdrop()
-            RemoteImage(url: film?.backdrop ?? series?.backdrop, contentMode: .fill)
-                .opacity(0.25)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    header
-                    if item.kind == .series { episodes }
-                }
-                .padding(32)
-            }
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(NeonButtonStyle())
-            .keyboardShortcut(.cancelAction)
-            .padding(16)
-        }
-        .frame(minWidth: 820, idealWidth: 900, minHeight: 600, idealHeight: 680)
-        .task { await load() }
-    }
-
-    // Details come from either the film or the series lookup. These small helpers keep each
-    // expression simple, which the Swift compiler needs to type-check them quickly.
-    private var displayTitle: String {
-        if let title = film?.title { return title }
-        if let title = series?.title { return title }
-        return item.name
-    }
-
-    private var posterURL: String? {
-        if let poster = film?.poster { return poster }
-        if let poster = series?.poster { return poster }
-        return item.icon
-    }
-
-    private var plotText: String? {
-        if let plot = film?.plot { return plot }
-        return series?.plot
-    }
-
-    private var castText: String? {
-        if let cast = film?.cast { return cast }
-        return series?.cast
-    }
-
-    private var metaText: String {
-        var parts: [String] = []
-        if let year = film?.year {
-            parts.append(year)
-        } else if let year = series?.year {
-            parts.append(year)
-        }
-        var rating: String? = film?.rating
-        if rating == nil { rating = series?.rating }
-        if rating == nil { rating = item.rating }
-        if let rating {
-            parts.append("Rated \(rating)")
-        }
-        if let duration = film?.duration {
-            parts.append(duration)
-        }
-        if let genre = film?.genre {
-            parts.append(genre)
-        } else if let genre = series?.genre {
-            parts.append(genre)
-        }
-        return parts.joined(separator: "   ")
-    }
-
-    private var header: some View {
-        let title: String = displayTitle
-        let meta: String = metaText
-        return HStack(alignment: .top, spacing: 28) {
-            RemoteImage(url: posterURL, contentMode: .fill)
-                .frame(width: 200, height: 300)
-                .clipShape(HudShape(cut: 14))
-                .overlay(HudShape(cut: 14).stroke(Neon.cyan.opacity(0.5), lineWidth: 1))
-            VStack(alignment: .leading, spacing: 14) {
-                NeonTitle(text: title, size: 28)
-                if !meta.isEmpty {
-                    Text(meta)
-                        .font(NeonFont.body(14, bold: true))
-                        .foregroundColor(Neon.magenta)
-                }
-                if let plot = plotText {
-                    Text(plot)
-                        .font(NeonFont.body(15))
-                        .foregroundColor(Neon.textSecondary)
-                        .frame(maxWidth: 560, alignment: .leading)
-                }
-                if let director = film?.director {
-                    Text("Director: \(director)").font(NeonFont.body(13)).foregroundColor(Neon.textMuted)
-                }
-                if let cast = castText {
-                    Text("Cast: \(cast)").font(NeonFont.body(13)).foregroundColor(Neon.textMuted).lineLimit(2)
-                }
-                HStack(spacing: 12) {
-                    actions
-                    Button(model.isFavorite(item) ? "Remove from favourites" : "Add to favourites") {
-                        model.toggleFavorite(item)
-                    }
-                    .buttonStyle(NeonButtonStyle())
-                }
-                .padding(.top, 6)
-                if loading {
-                    Text("Loading details…").font(NeonFont.body(13)).foregroundColor(Neon.textMuted)
-                }
-            }
+        .task(id: "\(loader.selected ?? "")|\(catalog.version)") {
+            await loader.load(catalog, userData: userData)
         }
     }
 
-    @ViewBuilder
-    private var actions: some View {
-        if item.kind == .movie {
-            let resume = model.resumePosition(for: "movie-\(item.streamId)")
-            if resume > 0 {
-                Button("Resume from \(clock(resume))") { playFilm(fromStart: false) }
-                    .buttonStyle(NeonButtonStyle(prominent: true))
-                Button("Start over") { playFilm(fromStart: true) }
-                    .buttonStyle(NeonButtonStyle())
-            } else {
-                Button("Play") { playFilm(fromStart: false) }
-                    .buttonStyle(NeonButtonStyle(prominent: true))
-            }
-        } else if let last = model.lastEpisode(forSeries: item.streamId) {
-            Button("Continue S\(last.season) E\(last.number ?? "?")") {
-                model.playEpisode(last, of: item, fromStart: false)
-                dismiss()
-            }
-            .buttonStyle(NeonButtonStyle(prominent: true))
-        } else if let first = series?.seasons.first?.episodes.first {
-            Button("Play first episode") {
-                model.playEpisode(first, of: item, fromStart: false)
-                dismiss()
-            }
-            .buttonStyle(NeonButtonStyle(prominent: true))
-        }
-    }
-
-    @ViewBuilder
-    private var episodes: some View {
-        if let seasons = series?.seasons, !seasons.isEmpty {
-            Picker("Season", selection: $season) {
-                ForEach(seasons) { item in
-                    Text("Season \(item.key)").tag(item.key)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 640)
-            let current = seasons.first { $0.key == season } ?? seasons[0]
-            VStack(spacing: 8) {
-                ForEach(current.episodes) { episode in
-                    EpisodeRow(
-                        episode: episode,
-                        resume: model.resumePosition(for: "episode-\(episode.id)"),
-                        lastWatched: model.lastEpisode(forSeries: item.streamId)?.id == episode.id
-                    ) {
-                        model.playEpisode(episode, of: item, fromStart: false)
-                        dismiss()
-                    }
-                }
-            }
-        } else if !loading {
-            Text("The provider hasn't listed any episodes for this series.")
-                .font(NeonFont.body(14))
-                .foregroundColor(Neon.textMuted)
-        }
-    }
-
-    private func load() async {
-        guard let client = model.client else { return }
-        if item.kind == .movie {
-            film = try? await client.vodInfo(item.streamId)
-        } else {
-            series = try? await client.seriesInfo(item.streamId)
-            let saved: String? = model.lastEpisode(forSeries: item.streamId)?.season
-            let seasons: [Season] = series?.seasons ?? []
-            if let match = seasons.first(where: { $0.key == saved }) {
-                season = match.key
-            } else {
-                season = seasons.first?.key ?? ""
-            }
-        }
-        loading = false
-    }
-
-    private func playFilm(fromStart: Bool) {
-        model.playMovie(item, containerExtension: film?.containerExtension, fromStart: fromStart)
-        dismiss()
-    }
-}
-
-
-@MainActor
-private struct EpisodeRow: View {
-    let episode: Episode
-    let resume: Double
-    let lastWatched: Bool
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 16) {
-                Text("E\(episode.number ?? "?")")
-                    .font(NeonFont.display(16))
-                    .foregroundColor(hovering ? Neon.onCyan : Neon.cyan)
-                    .frame(width: 56, alignment: .leading)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(episode.title)
-                        .font(NeonFont.body(15, bold: true))
-                        .foregroundColor(hovering ? Neon.onCyan : Neon.text)
-                    if let plot = episode.plot {
-                        Text(plot)
-                            .font(NeonFont.body(13))
-                            .foregroundColor(hovering ? Neon.onCyan.opacity(0.8) : Neon.textSecondary)
-                            .lineLimit(2)
-                    }
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
-                    if lastWatched {
-                        Text("Last watched").font(NeonFont.body(12, bold: true)).foregroundColor(hovering ? Neon.onCyan : Neon.magenta)
-                    }
-                    if resume > 0 {
-                        Text("Resume \(clock(resume))").font(NeonFont.body(12)).foregroundColor(hovering ? Neon.onCyan : Neon.textSecondary)
-                    }
-                    if let duration = episode.duration {
-                        Text(duration).font(NeonFont.body(12)).foregroundColor(hovering ? Neon.onCyan : Neon.textMuted)
-                    }
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(HudShape().fill(hovering ? Neon.cyan : Neon.surface.opacity(0.8)))
-            .overlay(HudShape().stroke(Neon.cyan.opacity(hovering ? 1 : 0.15), lineWidth: 1))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-    }
-}
-
-// MARK: Favourites
-
-
-@MainActor
-struct FavoritesView: View {
-    @EnvironmentObject private var model: AppModel
-    @State private var selected: MediaItem? = nil
-
-    var body: some View {
-        let live = model.favorites.filter { $0.kind == .live }
-        let onDemand = model.favorites.filter { $0.kind != .live }
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                NeonTitle(text: "Favourites")
-                if model.favorites.isEmpty {
-                    Text("Right-click any channel, film or series and choose Add to favourites.")
-                        .font(NeonFont.body(15))
-                        .foregroundColor(Neon.textSecondary)
-                }
-                if !live.isEmpty {
-                    Text("Channels").font(NeonFont.display(16)).foregroundColor(Neon.magenta)
-                    ForEach(Array(live.enumerated()), id: \.element.id) { index, item in
-                        Button {
-                            model.playLive(item, in: live)
-                        } label: {
-                            ChannelRow(item: item, number: index + 1)
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu { FavoriteMenuItem(item: item) }
-                    }
-                }
-                if !onDemand.isEmpty {
-                    Text("Films and series").font(NeonFont.display(16)).foregroundColor(Neon.magenta)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 18)], spacing: 22) {
-                        ForEach(onDemand) { item in
-                            PosterCard(item: item) { selected = item }
-                                .contextMenu { FavoriteMenuItem(item: item) }
-                        }
-                    }
-                }
-            }
-            .padding(28)
-        }
-        .sheet(item: $selected) { item in
-            DetailsView(item: item).environmentObject(model)
-        }
-    }
-}
-
-// MARK: Settings
-
-
-@MainActor
-struct SettingsView: View {
-    @EnvironmentObject private var model: AppModel
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                NeonTitle(text: "Settings")
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Account").font(NeonFont.display(16)).foregroundColor(Neon.magenta)
-                    if let credentials = model.credentials {
-                        setting("Login", "\(credentials.username) on \(credentials.server)")
-                    }
-                    if let account = model.account {
-                        setting("Status", statusText(account))
-                        setting("Expires", expiryText(account.expiry))
-                        if let active = account.activeConnections, let max = account.maxConnections {
-                            setting("Connections", "\(active) of \(max) in use")
-                        }
-                    }
-                    Button("Sign out") { model.signOut() }
-                        .buttonStyle(NeonButtonStyle())
-                }
-                .padding(18)
-                .neonPanel()
-                .frame(maxWidth: 640, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Playback").font(NeonFont.display(16)).foregroundColor(Neon.magenta)
-                    Toggle("Play live TV in the built-in player (HLS)", isOn: $model.preferHLS)
-                        .toggleStyle(.switch)
-                        .font(NeonFont.body(14))
-                    Text("Films in MKV or AVI, and live channels when this is off, open in VLC because macOS's own player can't decode them. VLC is free from videolan.org.")
-                        .font(NeonFont.body(13))
-                        .foregroundColor(Neon.textMuted)
-                        .frame(maxWidth: 560, alignment: .leading)
-                    Text("In the player: up and down arrows change channel, Esc closes, Space pauses, left and right skip.")
-                        .font(NeonFont.body(13))
-                        .foregroundColor(Neon.textMuted)
-                }
-                .padding(18)
-                .neonPanel()
-                .frame(maxWidth: 640, alignment: .leading)
-            }
-            .padding(28)
-        }
-    }
-
-    private func statusText(_ account: AccountInfo) -> String {
-        let status: String = account.status ?? "Active"
-        return account.isTrial ? "\(status) (trial)" : status
-    }
-
-    private func expiryText(_ expiry: Date?) -> String {
-        guard let expiry else { return "Never" }
-        let date: String = expiry.formatted(date: .abbreviated, time: .omitted)
-        let days: Int = Calendar.current.dateComponents([.day], from: Date(), to: expiry).day ?? 0
-        if days < 0 { return "\(date) (expired)" }
-        return "\(date) (\(days) days left)"
-    }
-
-    private func setting(_ label: String, _ value: String) -> some View {
-        HStack(alignment: .top) {
-            Text(label).font(NeonFont.body(14)).foregroundColor(Neon.textMuted).frame(width: 110, alignment: .leading)
-            Text(value).font(NeonFont.body(14, bold: true)).foregroundColor(Neon.text)
-        }
-    }
-}
-
-// MARK: Shared bits
-
-
-@MainActor
-struct FavoriteMenuItem: View {
-    @EnvironmentObject private var model: AppModel
-    let item: MediaItem
-
-    var body: some View {
-        Button(model.isFavorite(item) ? "Remove from favourites" : "Add to favourites") {
-            model.toggleFavorite(item)
-        }
-    }
-}
-
-
-@MainActor
-private struct StatusText: View {
-    @ObservedObject var state: BrowserState
-    let empty: String
-
-    var body: some View {
-        Group {
-            if let error = state.error {
-                Text(error).foregroundColor(Neon.danger)
-            } else if state.loading {
-                Text("Loading…").foregroundColor(Neon.textSecondary)
-            } else if state.items.isEmpty && state.selectedCategory != nil {
-                Text(empty).foregroundColor(Neon.textMuted)
-            }
-        }
-        .font(NeonFont.body(13))
-    }
-}
-
-/// AsyncImage with a neutral placeholder, for logos and posters that may be missing or broken.
-@MainActor
-struct RemoteImage: View {
-    let url: String?
-    let contentMode: ContentMode
-
-    var body: some View {
-        AsyncImage(url: url.flatMap { URL(string: $0) }) { phase in
-            switch phase {
-            case .success(let image):
-                image.resizable().aspectRatio(contentMode: contentMode)
-            default:
-                ZStack {
-                    Neon.surfaceRaised
-                    Image(systemName: "sparkles.tv").foregroundColor(Neon.textMuted)
-                }
-            }
-        }
+    private func progress(_ item: MediaItem) -> Double? {
+        guard kind == .movie else { return nil }
+        let key = model.resumeKey(for: item)
+        let position = model.resumePosition(for: key)
+        guard position > 0 else { return nil }
+        let entry = userData.history.first { $0.item.id == item.id }
+        guard let duration = entry?.duration, duration > 0 else { return nil }
+        return min(1, position / duration)
     }
 }
 
 func clock(_ seconds: Double) -> String {
-    let total = Int(seconds)
+    guard seconds.isFinite else { return "0:00" }
+    let total = Int(max(0, seconds))
     let hours = total / 3600
     let minutes = (total % 3600) / 60
     let secs = total % 60

@@ -78,6 +78,8 @@ struct ContentCategory: Identifiable, Hashable {
     let name: String
 }
 
+/// A live channel, film or series from one of the viewer's sources (an Xtream account or an M3U
+/// playlist). Stored in favourites, the library and history, so new fields must stay optional.
 struct MediaItem: Identifiable, Hashable, Codable {
     let kind: ContentKind
     let streamId: Int
@@ -86,8 +88,43 @@ struct MediaItem: Identifiable, Hashable, Codable {
     let categoryId: String?
     let containerExtension: String?
     let rating: String?
+    /// Which source this came from; nil means the first (original) Xtream account.
+    var sourceId: String? = nil
+    /// The stream address, for M3U entries (Xtream addresses are built from the login).
+    var url: String? = nil
+    /// XMLTV channel id (tvg-id / epg_channel_id), for guide listings.
+    var epgId: String? = nil
+    /// The provider's channel number, if it gives one.
+    var number: Int? = nil
+    /// When the provider added it (Unix time), for "Recently added".
+    var added: Double? = nil
+    /// The provider keeps catch-up recordings for this channel.
+    var hasArchive: Bool? = nil
 
-    var id: String { "\(kind.rawValue)-\(streamId)" }
+    var source: String { sourceId ?? Source.mainId }
+    var id: String { "\(source)|\(kind.rawValue)-\(streamId)" }
+
+    /// Title without the provider's decorations ("EN | ", "[4K]", "(2021)"), for matching and search.
+    var cleanName: String { MediaItem.clean(name) }
+
+    /// A year in the title, like "Film (2021)" or "Film 2021".
+    var titleYear: Int? {
+        guard let range = name.range(of: "(19|20)\\d{2}", options: .regularExpression) else { return nil }
+        return Int(name[range])
+    }
+
+    static func clean(_ raw: String) -> String {
+        var text = raw
+        // "EN | Title", "UK: Title", "|NL| Title"
+        if let range = text.range(of: "^\\s*[|\\[(]?[A-Za-z]{2,4}[|\\])]?\\s*[|:\\-]\\s*", options: .regularExpression) {
+            text.removeSubrange(range)
+        }
+        for pattern in ["\\[[^\\]]*\\]", "\\((19|20)\\d{2}\\)", "\\b(4K|UHD|FHD|HD|SD|HEVC|H265|MULTI|VOSTFR)\\b"] {
+            text = text.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+        }
+        return text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: " -|:.").union(.whitespaces))
+    }
 }
 
 struct VodInfo {
@@ -102,6 +139,7 @@ struct VodInfo {
     var poster: String?
     var backdrop: String?
     var containerExtension: String?
+    var tmdbId: Int? = nil
 }
 
 struct Episode: Identifiable, Hashable, Codable {
@@ -131,6 +169,7 @@ struct SeriesInfo {
     var poster: String?
     var backdrop: String?
     var seasons: [Season]
+    var tmdbId: Int? = nil
 }
 
 struct Programme: Identifiable, Hashable {
@@ -151,6 +190,7 @@ struct Programme: Identifiable, Hashable {
 
 struct XtreamClient {
     let credentials: XtreamCredentials
+    var sourceId: String = Source.mainId
 
     // MARK: Input helpers
 
@@ -230,9 +270,41 @@ struct XtreamClient {
                 icon: kind == .series ? str(item, "cover") : str(item, "stream_icon"),
                 categoryId: str(item, "category_id"),
                 containerExtension: str(item, "container_extension"),
-                rating: str(item, "rating").flatMap { $0 == "0" ? nil : $0 }
+                rating: str(item, "rating").flatMap { $0 == "0" ? nil : $0 },
+                sourceId: sourceId,
+                epgId: str(item, "epg_channel_id"),
+                number: int(item, "num"),
+                added: str(item, "added").flatMap { Double($0) } ?? str(item, "last_modified").flatMap { Double($0) },
+                hasArchive: kind == .live ? (int(item, "tv_archive") ?? 0) > 0 : nil
             )
         }
+    }
+
+    /// Every channel, film or series the account has, in one request. Big providers send tens of
+    /// megabytes and can take minutes to start, so this waits up to three minutes between bytes and
+    /// reports how much has arrived. Malformed entries are skipped rather than failing the list.
+    func allItems(_ kind: ContentKind, progress: @escaping @Sendable (Int64) -> Void) async throws -> [MediaItem] {
+        let action: String
+        switch kind {
+        case .live: action = "get_live_streams"
+        case .movie: action = "get_vod_streams"
+        case .series: action = "get_series"
+        }
+        let url = try apiURL(action: action, params: [:])
+        let data: Data
+        do {
+            data = try await LargeDownload.fetch(url, headers: requestHeaders, progress: progress)
+        } catch let error as URLError {
+            throw describe(error)
+        } catch LargeDownload.Failure.status(let code) {
+            if code == 401 { throw XtreamError.rejected }
+            if code == 403 { throw XtreamError.forbidden(host) }
+            throw XtreamError.httpStatus(host, code)
+        }
+        let source = sourceId
+        return try await Task.detached(priority: .userInitiated) {
+            try XtreamCatalogDecoder.decode(data, kind: kind, sourceId: source)
+        }.value
     }
 
     func vodInfo(_ id: Int) async throws -> VodInfo {
@@ -250,7 +322,8 @@ struct XtreamClient {
             director: str(info, "director"),
             poster: str(info, "movie_image") ?? str(info, "cover_big"),
             backdrop: str(info, "backdrop_path"),
-            containerExtension: str(movie, "container_extension")
+            containerExtension: str(movie, "container_extension"),
+            tmdbId: int(info, "tmdb_id") ?? int(info, "tmdb")
         )
     }
 
@@ -266,7 +339,8 @@ struct XtreamClient {
             cast: str(info, "cast"),
             poster: str(info, "cover"),
             backdrop: str(info, "backdrop_path"),
-            seasons: parseSeasons(root?["episodes"])
+            seasons: parseSeasons(root?["episodes"]),
+            tmdbId: int(info, "tmdb_id") ?? int(info, "tmdb")
         )
     }
 
@@ -331,7 +405,7 @@ struct XtreamClient {
     // MARK: Plumbing
 
     /// The server's host and port, for error messages ("example.com:8080").
-    private var host: String {
+    var host: String {
         guard let parts = URLComponents(string: credentials.server), let name = parts.host else {
             return credentials.server
         }
@@ -339,22 +413,38 @@ struct XtreamClient {
         return name
     }
 
-    private func call(action: String?, params: [String: String] = [:]) async throws -> Any {
+    private var requestHeaders: [String: String] {
+        ["Accept": "application/json", "User-Agent": PlaybackSettings.current.userAgentString]
+    }
+
+    private func apiURL(action: String?, params: [String: String]) throws -> URL {
         guard var parts = URLComponents(string: credentials.server + "/player_api.php") else { throw XtreamError.badServer }
         var query: [(String, String)] = [("username", credentials.username), ("password", credentials.password)]
         if let action { query.append(("action", action)) }
         for (key, value) in params.sorted(by: { $0.key < $1.key }) {
             query.append((key, value))
         }
-        // Encode everything but letters, digits and -._~ ourselves: URLComponents leaves "+" as is,
-        // which servers read as a space, breaking passwords that contain one.
         parts.percentEncodedQuery = query
             .map { "\(queryEncode($0.0))=\(queryEncode($0.1))" }
             .joined(separator: "&")
         guard let url = parts.url else { throw XtreamError.badServer }
-        var request = URLRequest(url: url, timeoutInterval: 25)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("ChudStreams/1.0 (Macintosh)", forHTTPHeaderField: "User-Agent")
+        return url
+    }
+
+    /// The provider's XMLTV guide for the whole account (xmltv.php).
+    var xmltvURL: URL? {
+        guard var parts = URLComponents(string: credentials.server + "/xmltv.php") else { return nil }
+        parts.percentEncodedQuery = "username=\(queryEncode(credentials.username))&password=\(queryEncode(credentials.password))"
+        return parts.url
+    }
+
+    private func call(action: String?, params: [String: String] = [:]) async throws -> Any {
+        // Everything but letters, digits and -._~ is percent-encoded (apiURL): URLComponents leaves
+        // "+" as is, which servers read as a space, breaking passwords that contain one.
+        let url = try apiURL(action: action, params: params)
+        // Busy panels can be slow to answer, so a single call gets a full minute.
+        var request = URLRequest(url: url, timeoutInterval: 60)
+        for (name, value) in requestHeaders { request.setValue(value, forHTTPHeaderField: name) }
 
         let result: (Data, URLResponse)
         do {
@@ -375,7 +465,7 @@ struct XtreamClient {
         }
     }
 
-    private func describe(_ error: URLError) -> XtreamError {
+    func describe(_ error: URLError) -> XtreamError {
         switch error.code {
         case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff:
             return .noInternet

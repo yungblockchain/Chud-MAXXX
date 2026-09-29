@@ -1,66 +1,127 @@
 import AppKit
 import Foundation
-import Security
+import SwiftUI
 
 /// What the player should show. Live requests carry the channel list so up/down can flip channels.
 struct PlaybackRequest: Identifiable, Equatable {
+    enum Kind { case live, movie, episode, catchUp }
+
     let id = UUID()
-    let title: String
-    let subtitle: String?
-    let url: URL
+    var kind: Kind
+    var title: String
+    var subtitle: String?
+    var url: URL
+    var artwork: String? = nil
+    /// The channel, film or series this is.
+    var item: MediaItem? = nil
+    var episode: Episode? = nil
     /// Where to save the position (films and episodes); nil for live TV.
-    let resumeKey: String?
-    let startAt: Double
-    let live: Bool
-    let channelList: [MediaItem]
-    let channelIndex: Int?
-    let streamId: Int?
+    var resumeKey: String? = nil
+    var startAt: Double = 0
+    var channelList: [MediaItem] = []
+    var channelIndex: Int? = nil
+    /// Following episodes, for "Up next".
+    var upNext: [Episode] = []
+    /// The history entry this playback updates.
+    var historyId: String? = nil
+
+    var live: Bool { kind == .live }
+    var streamId: Int? { kind == .live ? item?.streamId : nil }
+
+    static func == (a: PlaybackRequest, b: PlaybackRequest) -> Bool { a.id == b.id }
 }
 
 @MainActor
 final class AppModel: ObservableObject {
-    @Published private(set) var credentials: XtreamCredentials? = nil
-    @Published private(set) var account: AccountInfo? = nil
-    @Published private(set) var favorites: [MediaItem] = []
-    @Published private(set) var epg: [Int: [Programme]] = [:]
-    /// Full listings for the timeline guide, by stream id. Absent means not loaded yet.
-    @Published private(set) var listings: [Int: [Programme]] = [:]
-    @Published var nowPlaying: PlaybackRequest? = nil
-    @Published var notice: String? = nil
-    @Published var preferHLS: Bool {
-        didSet { defaults.set(preferHLS, forKey: Keys.preferHLS) }
+    @Published private(set) var sources: [Source] = []
+    @Published var activeSourceId: String? {
+        didSet { defaults.set(activeSourceId, forKey: Keys.activeSource) }
     }
+    @Published private(set) var accounts: [String: AccountInfo] = [:]
+    /// Now and next, by item id.
+    @Published private(set) var epg: [String: [Programme]] = [:]
+    /// Full listings for the timeline guide, by item id. Absent means not loaded yet.
+    @Published private(set) var listings: [String: [Programme]] = [:]
+    @Published var notice: String? = nil
+    @Published var section: AppSection = .home
+    /// The film or series whose page is open.
+    @Published var details: MediaItem? = nil
+    /// The actor or crew member whose page is open (TMDB person id).
+    @Published var person: Int? = nil
+    /// Set when the app should jump to Search with this text.
+    @Published var pendingSearch: String? = nil
 
+    let userData = UserData()
+    let playback = PlaybackCenter()
+    private var catalogs: [String: CatalogStore] = [:]
     private let defaults = UserDefaults.standard
-    private var epgFetchedAt: [Int: Date] = [:]
-    private var epgInFlight = Set<Int>()
-    private var listingFetchedAt: [Int: Date] = [:]
-    private var listingInFlight = Set<Int>()
-    private var listingOrder: [Int] = []
+    private var epgFetchedAt: [String: Date] = [:]
+    private var epgInFlight = Set<String>()
+    private var listingFetchedAt: [String: Date] = [:]
+    private var listingInFlight = Set<String>()
+    private var listingOrder: [String] = []
 
-    /// Formats the built-in macOS player handles; anything else is offered to VLC.
+    /// Formats Apple's player handles; anything else needs the built-in player or VLC.
     static let nativeFormats: Set<String> = ["mp4", "m4v", "mov", "m3u8"]
 
-    var client: XtreamClient? { credentials.map { XtreamClient(credentials: $0) } }
-
     init() {
-        // Read through a local: `self` can't be used until every stored property has a value.
-        let store = UserDefaults.standard
-        preferHLS = (store.object(forKey: Keys.preferHLS) as? Bool) ?? true
-        if let server = store.string(forKey: Keys.server),
-           let username = store.string(forKey: Keys.username),
-           let password = Keychain.load(account: "\(username)@\(server)") {
-            credentials = XtreamCredentials(server: server, username: username, password: password)
+        sources = AppModel.loadSources()
+        activeSourceId = defaults.string(forKey: Keys.activeSource) ?? sources.first?.id
+        if let active = activeSourceId, !sources.contains(where: { $0.id == active }) {
+            activeSourceId = sources.first?.id
         }
-        if let data = store.data(forKey: Keys.favorites),
-           let saved = try? JSONDecoder().decode([MediaItem].self, from: data) {
-            favorites = saved
-        }
+        playback.model = self
+        for source in sources { catalog(for: source.id)?.start() }
     }
 
-    // MARK: Account
+    // MARK: Sources
 
-    func signIn(server rawServer: String, username rawUser: String, password rawPassword: String) async throws {
+    var activeSource: Source? { sources.first { $0.id == activeSourceId } ?? sources.first }
+    var catalog: CatalogStore? { activeSource.flatMap { catalog(for: $0.id) } }
+    var client: XtreamClient? { activeSource?.client }
+    var credentials: XtreamCredentials? { activeSource?.credentials }
+    var account: AccountInfo? { activeSource.flatMap { accounts[$0.id] } }
+    var hasSources: Bool { !sources.isEmpty }
+
+    func catalog(for sourceId: String) -> CatalogStore? {
+        if let existing = catalogs[sourceId] { return existing }
+        guard let source = sources.first(where: { $0.id == sourceId }) else { return nil }
+        let store = CatalogStore(source: source)
+        catalogs[sourceId] = store
+        return store
+    }
+
+    func source(for item: MediaItem) -> Source? {
+        sources.first { $0.id == item.source } ?? (item.sourceId == nil ? sources.first { $0.kind == .xtream } : nil)
+    }
+
+    func client(for item: MediaItem) -> XtreamClient? { source(for: item)?.client }
+
+    private static func loadSources() -> [Source] {
+        let store = UserDefaults.standard
+        var list: [Source] = []
+        if let data = store.data(forKey: Keys.sources), let saved = try? JSONDecoder().decode([Source].self, from: data) {
+            list = saved
+        }
+        // The single Xtream login from earlier versions becomes the "main" source.
+        if !list.contains(where: { $0.id == Source.mainId }),
+           let server = store.string(forKey: "server"),
+           let username = store.string(forKey: "username"),
+           let password = Keychain.load(account: "\(username)@\(server)") {
+            let source = Source(id: Source.mainId, kind: .xtream, name: URL(string: server)?.host ?? "My provider", server: server, username: username)
+            Keychain.write(password, account: source.keychainAccount)
+            list.insert(source, at: 0)
+            if let data = try? JSONEncoder().encode(list) { store.set(data, forKey: Keys.sources) }
+        }
+        return list
+    }
+
+    private func saveSources() {
+        if let data = try? JSONEncoder().encode(sources) { defaults.set(data, forKey: Keys.sources) }
+    }
+
+    /// Checks an Xtream login and adds it.
+    func addXtream(server rawServer: String, username rawUser: String, password rawPassword: String, name: String = "") async throws {
         let fromLink = XtreamClient.credentials(fromLink: rawServer)
         guard let server = fromLink?.server ?? XtreamClient.normalizeServer(rawServer) else { throw XtreamError.badServer }
         let username = fromLink?.username ?? rawUser.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -69,44 +130,115 @@ final class AppModel: ObservableObject {
         let candidate = XtreamCredentials(server: server, username: username, password: password)
         let info = try await XtreamClient(credentials: candidate).accountInfo()
         guard info.isActive else { throw XtreamError.inactive(info.status ?? "inactive") }
-        defaults.set(server, forKey: Keys.server)
-        defaults.set(username, forKey: Keys.username)
-        Keychain.save(password, account: "\(username)@\(server)")
-        account = info
-        credentials = candidate
+        let existing = sources.first { $0.kind == .xtream && $0.server == server && $0.username == username }
+        let id = existing?.id ?? (sources.contains { $0.id == Source.mainId } ? "xt-\(M3UParser.stableId(server + username))" : Source.mainId)
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = Source(id: id, kind: .xtream, name: trimmedName.isEmpty ? (URL(string: server)?.host ?? "Xtream") : trimmedName,
+                            server: server, username: username)
+        Keychain.write(password, account: source.keychainAccount)
+        install(source)
+        accounts[id] = info
+    }
+
+    /// Adds an M3U playlist (and optional XMLTV guide). The playlist is downloaded to check it.
+    func addM3U(url rawURL: String, guide rawGuide: String, name: String = "") async throws {
+        let link = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A provider's get.php link is really an Xtream login, which also brings films, series and catch-up.
+        if XtreamClient.credentials(fromLink: link) != nil {
+            try await addXtream(server: link, username: "", password: "", name: name)
+            return
+        }
+        guard let url = URL(string: link), let scheme = url.scheme?.lowercased(), ["http", "https", "file"].contains(scheme) else {
+            throw XtreamError.other("the playlist", "enter the full address, starting with http:// or https://.")
+        }
+        let guideLink = rawGuide.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = Source(id: "m3u-\(M3UParser.stableId(link))", kind: .m3u,
+                            name: trimmedName.isEmpty ? (url.host ?? "Playlist") : trimmedName,
+                            playlistURL: link, epgURL: guideLink.isEmpty ? nil : guideLink)
+        install(source)
+        if let store = catalog(for: source.id) {
+            await store.refresh(.live)
+            if case .failed(let message) = store.phases[.live] {
+                removeSource(source.id)
+                throw XtreamError.other(url.host ?? "the playlist", message)
+            }
+            await store.loadGuide()
+        }
+    }
+
+    private func install(_ source: Source) {
+        if let index = sources.firstIndex(where: { $0.id == source.id }) {
+            sources[index] = source
+            catalogs[source.id] = nil
+        } else {
+            sources.append(source)
+        }
+        saveSources()
+        activeSourceId = source.id
+        catalog(for: source.id)?.start()
+    }
+
+    func removeSource(_ id: String) {
+        guard let source = sources.first(where: { $0.id == id }) else { return }
+        Keychain.remove(account: source.keychainAccount)
+        if id == Source.mainId, let server = source.server, let username = source.username {
+            Keychain.delete(account: "\(username)@\(server)")
+            defaults.removeObject(forKey: "server")
+            defaults.removeObject(forKey: "username")
+        }
+        CatalogCache.remove(source: id)
+        sources.removeAll { $0.id == id }
+        catalogs[id] = nil
+        accounts[id] = nil
+        saveSources()
+        if activeSourceId == id { activeSourceId = sources.first?.id }
+        if playback.current?.item?.source == id { playback.stop() }
+    }
+
+    func renameSource(_ id: String, to name: String) {
+        guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        sources[index].name = trimmed
+        saveSources()
+    }
+
+    func setGuide(_ id: String, url: String) {
+        guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        sources[index].epgURL = trimmed.isEmpty ? nil : trimmed
+        saveSources()
+        catalogs[id] = nil
+        catalog(for: id)?.start()
     }
 
     func refreshAccount() async {
-        guard let client else { return }
-        account = try? await client.accountInfo()
-    }
-
-    func signOut() {
-        if let current = credentials {
-            Keychain.delete(account: "\(current.username)@\(current.server)")
+        for source in sources where source.kind == .xtream {
+            if let info = try? await source.client?.accountInfo() { accounts[source.id] = info }
         }
-        defaults.removeObject(forKey: Keys.server)
-        defaults.removeObject(forKey: Keys.username)
-        nowPlaying = nil
-        account = nil
-        epg = [:]
-        credentials = nil
     }
 
-    // MARK: Favourites
+    // MARK: Favourites (compatibility with the original screens)
 
-    func isFavorite(_ item: MediaItem) -> Bool { favorites.contains { $0.id == item.id } }
-
+    func isFavorite(_ item: MediaItem) -> Bool { userData.isFavourite(item) }
     func toggleFavorite(_ item: MediaItem) {
-        if isFavorite(item) {
-            favorites.removeAll { $0.id == item.id }
-        } else {
-            favorites.append(item)
-        }
-        if let data = try? JSONEncoder().encode(favorites) { defaults.set(data, forKey: Keys.favorites) }
+        userData.toggleFavourite(item)
+        objectWillChange.send()
     }
+    var favorites: [MediaItem] { userData.favourites.items }
 
     // MARK: Resume
+
+    func resumeKey(for item: MediaItem) -> String {
+        let base = "movie-\(item.streamId)"
+        return item.source == Source.mainId ? base : "\(item.source)|\(base)"
+    }
+
+    func resumeKey(for episode: Episode, of series: MediaItem) -> String {
+        let base = "episode-\(episode.id)"
+        return series.source == Source.mainId ? base : "\(series.source)|\(base)"
+    }
 
     /// Saved position in seconds, or 0 if there's nothing worth resuming.
     func resumePosition(for key: String) -> Double {
@@ -122,42 +254,71 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func lastEpisode(forSeries seriesId: Int) -> Episode? {
-        defaults.data(forKey: Keys.lastEpisodePrefix + String(seriesId))
+    func lastEpisode(forSeries series: MediaItem) -> Episode? {
+        defaults.data(forKey: lastEpisodeKey(series))
             .flatMap { try? JSONDecoder().decode(Episode.self, from: $0) }
+    }
+
+    private func lastEpisodeKey(_ series: MediaItem) -> String {
+        let base = Keys.lastEpisodePrefix + String(series.streamId)
+        return series.source == Source.mainId ? base : "\(series.source)|\(base)"
     }
 
     // MARK: Programme guide
 
-    func loadEPG(for streamId: Int) async {
-        if let fetched = epgFetchedAt[streamId], Date().timeIntervalSince(fetched) < 600,
-           epg[streamId]?.first.map({ $0.end > Date() }) ?? true {
-            return
+    func nowNext(for item: MediaItem) -> [Programme] {
+        if let source = source(for: item), source.kind == .m3u || source.epgURL != nil,
+           let store = catalog(for: source.id) {
+            let list = store.xmltvListing(for: item)
+            if !list.isEmpty {
+                let now = Date()
+                return Array(list.filter { $0.end > now }.prefix(4))
+            }
         }
-        guard let client, !epgInFlight.contains(streamId) else { return }
-        epgInFlight.insert(streamId)
-        defer { epgInFlight.remove(streamId) }
-        let listings = (try? await client.shortEPG(streamId: streamId)) ?? []
-        epgFetchedAt[streamId] = Date()
-        epg[streamId] = listings.filter { $0.end > Date() }
+        return epg[item.id] ?? []
     }
 
-    /// Loads one channel's full listing for the guide as its row scrolls into view. Cached for
-    /// 30 minutes; only the 300 most recently viewed channels are kept, to stay light on memory.
-    func loadListing(for streamId: Int) async {
-        if let fetched = listingFetchedAt[streamId], Date().timeIntervalSince(fetched) < 1800 { return }
-        guard let client, !listingInFlight.contains(streamId) else { return }
-        listingInFlight.insert(streamId)
-        defer { listingInFlight.remove(streamId) }
-        // A cancelled load (row scrolled away) isn't recorded, so it's retried next time.
-        guard let all = try? await client.fullEPG(streamId: streamId) else { return }
+    func loadEPG(for item: MediaItem) async {
+        guard item.kind == .live, let client = client(for: item) else { return }
+        let key = item.id
+        if let fetched = epgFetchedAt[key], Date().timeIntervalSince(fetched) < 600,
+           epg[key]?.first.map({ $0.end > Date() }) ?? true {
+            return
+        }
+        guard !epgInFlight.contains(key) else { return }
+        epgInFlight.insert(key)
+        defer { epgInFlight.remove(key) }
+        let listings = (try? await client.shortEPG(streamId: item.streamId)) ?? []
+        epgFetchedAt[key] = Date()
+        epg[key] = listings.filter { $0.end > Date() }
+    }
+
+    /// One channel's full listing for the guide. Xtream: fetched as its row scrolls into view and
+    /// cached for 30 minutes (the 300 most recent channels). M3U: from the XMLTV guide.
+    func listing(for item: MediaItem) -> [Programme]? {
+        if let source = source(for: item), source.kind == .m3u || source.epgURL != nil,
+           let store = catalog(for: source.id) {
+            let list = store.xmltvListing(for: item)
+            if !list.isEmpty || source.kind == .m3u { return list }
+        }
+        return listings[item.id]
+    }
+
+    func loadListing(for item: MediaItem) async {
+        guard let source = source(for: item), source.kind == .xtream, let client = source.client else { return }
+        let key = item.id
+        if let fetched = listingFetchedAt[key], Date().timeIntervalSince(fetched) < 1800 { return }
+        guard !listingInFlight.contains(key) else { return }
+        listingInFlight.insert(key)
+        defer { listingInFlight.remove(key) }
+        guard let all = try? await client.fullEPG(streamId: item.streamId) else { return }
         let now = Date()
-        listings[streamId] = all.filter {
+        listings[key] = all.filter {
             $0.end > now.addingTimeInterval(-26 * 3600) && $0.start < now.addingTimeInterval(26 * 3600)
         }
-        listingFetchedAt[streamId] = now
-        listingOrder.removeAll { $0 == streamId }
-        listingOrder.append(streamId)
+        listingFetchedAt[key] = now
+        listingOrder.removeAll { $0 == key }
+        listingOrder.append(key)
         while listingOrder.count > 300 {
             let oldest = listingOrder.removeFirst()
             listingFetchedAt[oldest] = nil
@@ -165,145 +326,162 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: Stream addresses
+
+    func liveURL(for item: MediaItem, hls: Bool) -> URL? {
+        if let direct = item.url { return URL(string: direct) }
+        return client(for: item)?.liveURL(item, hls: hls)
+    }
+
     // MARK: Playback
 
-    /// Replays an archived programme. Catch-up streams are MPEG-TS, which only VLC plays on a Mac.
+    /// Films and series open their page; channels start playing.
+    func open(_ item: MediaItem, in list: [MediaItem] = []) {
+        switch item.kind {
+        case .live: playLive(item, in: list.isEmpty ? [item] : list)
+        case .movie, .series:
+            withAnimation(Motion.page) { details = item }
+        }
+    }
+
+    /// Replays an archived programme.
     func playCatchUp(_ programme: Programme, on channel: MediaItem) {
-        guard let client, let url = client.catchUpURL(streamId: channel.streamId, programme: programme) else {
+        guard let client = client(for: channel), let url = client.catchUpURL(streamId: channel.streamId, programme: programme) else {
             notice = "This programme can't be replayed: the provider didn't send its start time."
             return
         }
-        openExternally(url)
+        let request = PlaybackRequest(kind: .catchUp, title: programme.title,
+                                      subtitle: "\(channel.name)  ·  \(programme.start.formatted(date: .abbreviated, time: .shortened))",
+                                      url: url, artwork: channel.icon, item: channel)
+        playback.play(request)
     }
 
     func playLive(_ item: MediaItem, in list: [MediaItem]) {
-        guard let client else { return }
-        let formats = account?.allowedFormats ?? []
-        let hls = preferHLS && (formats.isEmpty || formats.contains("m3u8"))
-        guard let url = client.liveURL(item, hls: hls) else { return }
-        guard hls else {
-            openExternally(url)
-            return
-        }
-        nowPlaying = PlaybackRequest(
+        let settings = PlaybackSettings.current
+        // The built-in player takes the provider's native MPEG-TS; Apple's player needs HLS.
+        let formats = accounts[item.source]?.allowedFormats ?? []
+        let wantsHLS = settings.engine == .apple && (formats.isEmpty || formats.contains("m3u8"))
+        guard let url = liveURL(for: item, hls: wantsHLS) else { return }
+        let request = PlaybackRequest(
+            kind: .live,
             title: item.name,
             subtitle: nil,
             url: url,
-            resumeKey: nil,
-            startAt: 0,
-            live: true,
+            artwork: item.icon,
+            item: item,
             channelList: list,
             channelIndex: list.firstIndex(of: item),
-            streamId: item.streamId
+            historyId: item.id
         )
-        Task { await loadEPG(for: item.streamId) }
+        userData.record(HistoryEntry(id: item.id, item: item, title: item.name, subtitle: "Live TV", image: item.icon))
+        playback.play(request)
+        Task { await loadEPG(for: item) }
     }
 
     /// Up/down in the player: step through the list the channel was opened from.
     func zap(_ step: Int) {
-        guard let current = nowPlaying, current.live, let index = current.channelIndex else { return }
+        guard let current = playback.current, current.live, let index = current.channelIndex else { return }
         let count = current.channelList.count
         guard count > 1 else { return }
         let next = ((index + step) % count + count) % count
         playLive(current.channelList[next], in: current.channelList)
     }
 
-    func playMovie(_ item: MediaItem, containerExtension: String?, fromStart: Bool) {
-        guard let client, let url = client.movieURL(item, containerExtension: containerExtension) else { return }
-        let key = "movie-\(item.streamId)"
-        play(url: url, title: item.name, subtitle: nil, resumeKey: key, fromStart: fromStart)
+    func playMovie(_ item: MediaItem, containerExtension: String?, fromStart: Bool, artwork: String? = nil) {
+        let url: URL?
+        if let direct = item.url {
+            url = URL(string: direct)
+        } else {
+            url = client(for: item)?.movieURL(item, containerExtension: containerExtension)
+        }
+        guard let url else { return }
+        let key = resumeKey(for: item)
+        let settings = PlaybackSettings.current
+        let start = fromStart || !settings.resume ? 0 : resumePosition(for: key)
+        let image = artwork ?? item.icon
+        userData.record(HistoryEntry(id: item.id, item: item, title: item.cleanName, subtitle: "Film", image: image,
+                                     position: start, duration: userData.history.first { $0.id == item.id }?.duration ?? 0))
+        playback.play(PlaybackRequest(kind: .movie, title: item.cleanName, subtitle: nil, url: url, artwork: image,
+                                      item: item, resumeKey: key, startAt: start, historyId: item.id))
     }
 
-    func playEpisode(_ episode: Episode, of series: MediaItem, fromStart: Bool) {
-        guard let client, let url = client.episodeURL(episode) else { return }
+    func playEpisode(_ episode: Episode, of series: MediaItem, fromStart: Bool, upNext: [Episode] = [], artwork: String? = nil) {
+        guard let client = client(for: series), let url = client.episodeURL(episode) else { return }
         if let data = try? JSONEncoder().encode(episode) {
-            defaults.set(data, forKey: Keys.lastEpisodePrefix + String(series.streamId))
+            defaults.set(data, forKey: lastEpisodeKey(series))
         }
         let label = "S\(episode.season) E\(episode.number ?? "?")"
-        play(url: url, title: episode.title, subtitle: "\(series.name)  \(label)", resumeKey: "episode-\(episode.id)", fromStart: fromStart)
+        let key = resumeKey(for: episode, of: series)
+        let settings = PlaybackSettings.current
+        let start = fromStart || !settings.resume ? 0 : resumePosition(for: key)
+        let image = artwork ?? episode.image ?? series.icon
+        let historyId = "series|\(series.id)"
+        userData.record(HistoryEntry(id: historyId, item: series, episode: episode, title: series.cleanName,
+                                     subtitle: "\(label) · \(episode.title)", image: series.icon ?? image, position: start))
+        playback.play(PlaybackRequest(kind: .episode, title: episode.title, subtitle: "\(series.cleanName)  \(label)", url: url,
+                                      artwork: image, item: series, episode: episode, resumeKey: key, startAt: start,
+                                      upNext: upNext, historyId: historyId))
+    }
+
+    /// Continue watching: pick up where it stopped.
+    func resume(_ entry: HistoryEntry) {
+        switch entry.item.kind {
+        case .live:
+            let list = catalog(for: entry.item.source)?.all(.live) ?? []
+            let category = list.filter { $0.categoryId == entry.item.categoryId }
+            playLive(entry.item, in: category.isEmpty ? [entry.item] : category)
+        case .movie:
+            playMovie(entry.item, containerExtension: entry.item.containerExtension, fromStart: false, artwork: entry.image)
+        case .series:
+            if let episode = entry.episode {
+                Task {
+                    let following = await upcomingEpisodes(after: episode, of: entry.item)
+                    playEpisode(episode, of: entry.item, fromStart: false, upNext: following)
+                }
+            } else {
+                withAnimation(Motion.page) { details = entry.item }
+            }
+        }
+    }
+
+    /// Episodes after this one, in order, for Up next.
+    func upcomingEpisodes(after episode: Episode, of series: MediaItem) async -> [Episode] {
+        guard let client = client(for: series), let info = try? await client.seriesInfo(series.streamId) else { return [] }
+        let all = info.seasons.flatMap { $0.episodes }
+        guard let index = all.firstIndex(where: { $0.id == episode.id }) else { return [] }
+        return Array(all.dropFirst(index + 1).prefix(20))
     }
 
     func stop() {
-        nowPlaying = nil
+        playback.stop()
     }
 
-    private func play(url: URL, title: String, subtitle: String?, resumeKey: String, fromStart: Bool) {
-        let ext = url.pathExtension.lowercased()
-        guard AppModel.nativeFormats.contains(ext) else {
-            openExternally(url)
-            return
-        }
-        nowPlaying = PlaybackRequest(
-            title: title,
-            subtitle: subtitle,
-            url: url,
-            resumeKey: resumeKey,
-            startAt: fromStart ? 0 : resumePosition(for: resumeKey),
-            live: false,
-            channelList: [],
-            channelIndex: nil,
-            streamId: nil
-        )
-    }
+    var nowPlaying: PlaybackRequest? { playback.current }
 
-    /// Hands formats the macOS player can't decode (MKV, AVI, raw MPEG-TS) to VLC if it's installed.
+    /// Hands a stream to VLC if it's installed.
     func openExternally(_ url: URL) {
         let workspace = NSWorkspace.shared
         if let vlc = workspace.urlForApplication(withBundleIdentifier: "org.videolan.vlc") {
             workspace.open([url], withApplicationAt: vlc, configuration: NSWorkspace.OpenConfiguration()) { _, _ in }
-            notice = "Opened in VLC: this format needs VLC on a Mac."
+            notice = "Opened in VLC."
         } else {
-            notice = "This video's format (\(url.pathExtension.uppercased())) needs VLC. Install it free from videolan.org, then try again."
+            notice = "VLC isn't installed. Get it free from videolan.org, or switch to the built-in player in Settings."
             if let site = URL(string: "https://www.videolan.org/vlc/") { workspace.open(site) }
         }
     }
 
     private enum Keys {
-        static let server = "server"
-        static let username = "username"
-        static let favorites = "favorites"
-        static let preferHLS = "preferHLS"
+        static let sources = "sources.v1"
+        static let activeSource = "sources.active"
         static let resumePrefix = "resume."
         static let lastEpisodePrefix = "lastEpisode."
     }
 }
 
-/// Stores the provider password in the macOS Keychain rather than in plain preferences.
-enum Keychain {
-    private static let service = "app.chudstreams.mac"
-
-    static func save(_ password: String, account: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(query as CFDictionary)
-        var item = query
-        item[kSecValueData as String] = Data(password.utf8)
-        SecItemAdd(item as CFDictionary, nil)
-    }
-
-    static func load(account: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    static func delete(account: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(query as CFDictionary)
-    }
+/// Shared animation timings, so the whole app moves the same way.
+enum Motion {
+    static let page = Animation.spring(response: 0.42, dampingFraction: 0.86)
+    static let quick = Animation.spring(response: 0.26, dampingFraction: 0.9)
+    static let hover = Animation.easeOut(duration: 0.14)
+    static let fade = Animation.easeInOut(duration: 0.22)
 }

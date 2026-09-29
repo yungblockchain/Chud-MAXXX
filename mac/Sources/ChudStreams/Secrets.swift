@@ -71,8 +71,17 @@ enum Secrets {
 /// Generic-password Keychain helpers.
 enum Keychain {
     static let appService = "app.chudstreams.mac"
+    /// This session's values, so the app keeps working if the Keychain refuses a write
+    /// (for example on a build machine with a locked keychain).
+    private static var session: [String: String] = [:]
+    private static let lock = NSLock()
+
+    private static func sessionKey(_ service: String, _ account: String) -> String { service + "|" + account }
 
     static func write(_ value: String, service: String = appService, account: String) {
+        lock.lock()
+        session[sessionKey(service, account)] = value
+        lock.unlock()
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -86,6 +95,10 @@ enum Keychain {
     }
 
     static func read(service: String = appService, account: String) -> String? {
+        lock.lock()
+        let remembered = session[sessionKey(service, account)]
+        lock.unlock()
+        if let remembered { return remembered }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -100,6 +113,9 @@ enum Keychain {
     }
 
     static func remove(service: String = appService, account: String) {
+        lock.lock()
+        session[sessionKey(service, account)] = nil
+        lock.unlock()
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

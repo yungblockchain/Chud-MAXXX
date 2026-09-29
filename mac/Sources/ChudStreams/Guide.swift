@@ -62,7 +62,23 @@ final class HorizontalScrollMonitor: ObservableObject {
 @MainActor
 struct GuideView: View {
     @EnvironmentObject private var model: AppModel
-    @StateObject private var state = BrowserState(kind: .live)
+
+    var body: some View {
+        if let catalog = model.catalog {
+            GuideContent(catalog: catalog)
+                .id(catalog.source.id)
+        } else {
+            EmptyState(symbol: "calendar", title: "No source", message: "Add an Xtream login or an M3U playlist in Settings.")
+        }
+    }
+}
+
+@MainActor
+private struct GuideContent: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var userData: UserData
+    @ObservedObject var catalog: CatalogStore
+    @StateObject private var state = BrowseLoader(kind: .live)
     @StateObject private var scroll = HorizontalScrollMonitor()
     @State private var windowStart = GuideLayout.initialStart()
     @State private var selection: GuideSelection? = nil
@@ -78,7 +94,7 @@ struct GuideView: View {
             header
             GuideInfoPanel(
                 selection: selection,
-                number: selection.flatMap { sel in channels.firstIndex(where: { $0.id == sel.channel.id }) }.map { $0 + 1 },
+                number: selection.flatMap { sel in sel.channel.number ?? channels.firstIndex(where: { $0.id == sel.channel.id }).map { $0 + 1 } },
                 now: now,
                 onWatchLive: { channel in model.playLive(channel, in: channels) },
                 onCatchUp: { programme, channel in model.playCatchUp(programme, on: channel) }
@@ -93,8 +109,8 @@ struct GuideView: View {
                             ForEach(Array(channels.enumerated()), id: \.element.id) { index, channel in
                                 GuideRow(
                                     channel: channel,
-                                    number: index + 1,
-                                    programmes: model.listings[channel.streamId],
+                                    number: channel.number ?? (index + 1),
+                                    programmes: model.listing(for: channel),
                                     windowStart: windowStart,
                                     span: span,
                                     width: timelineWidth,
@@ -103,7 +119,7 @@ struct GuideView: View {
                                     onSelect: { programme in selection = GuideSelection(channel: channel, programme: programme) },
                                     onActivate: { programme in activate(programme, on: channel) }
                                 )
-                                .task(id: channel.streamId) { await model.loadListing(for: channel.streamId) }
+                                .task(id: channel.id) { await model.loadListing(for: channel) }
                             }
                         }
                         .padding(.bottom, 12)
@@ -113,8 +129,10 @@ struct GuideView: View {
             }
         }
         .padding(24)
-        .searchable(text: $query, prompt: "Search channels in this category")
-        .task { await state.loadCategories(client: model.client) }
+        .task(id: "\(state.selected ?? "")|\(catalog.version)") {
+            await state.load(catalog, userData: userData)
+            await catalog.loadGuide()
+        }
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
@@ -131,15 +149,21 @@ struct GuideView: View {
         HStack(spacing: 14) {
             NeonTitle(text: "Guide")
             Picker("Category", selection: Binding(
-                get: { state.selectedCategory ?? "" },
-                set: { id in Task { await state.select(id, client: model.client) } }
+                get: { state.selected ?? "" },
+                set: { id in state.select(id) }
             )) {
-                ForEach(state.categories) { category in
+                ForEach(state.categories(catalog, userData: userData)) { category in
                     Text(category.name).tag(category.id)
                 }
             }
             .pickerStyle(.menu)
             .frame(maxWidth: 300)
+            TextField("Filter channels", text: $query)
+                .textFieldStyle(.plain)
+                .font(NeonFont.body(13))
+                .padding(7)
+                .neonPanel()
+                .frame(width: 200)
             Spacer()
             Button { shift(by: -3600) } label: { Label("Earlier", systemImage: "chevron.left") }
                 .buttonStyle(NeonButtonStyle())
@@ -210,9 +234,9 @@ private struct GuideInfoPanel: View {
                     Button("Watch \(selection.channel.name)") { onWatchLive(selection.channel) }
                         .buttonStyle(NeonButtonStyle(prominent: true))
                     if let programme = selection.programme, programme.canReplay {
-                        Button("Watch from the start (VLC)") { onCatchUp(programme, selection.channel) }
+                        Button("Watch from the start") { onCatchUp(programme, selection.channel) }
                             .buttonStyle(NeonButtonStyle())
-                            .help("Catch-up recordings are MPEG-TS streams, which open in VLC on a Mac")
+                            .help("Plays the provider's catch-up recording of this programme")
                     }
                 }
             } else {
@@ -314,8 +338,7 @@ private struct GuideRow: View {
                     .font(NeonFont.display(13))
                     .foregroundColor(Neon.cyan)
                     .frame(width: 36, alignment: .trailing)
-                RemoteImage(url: channel.icon, contentMode: .fit)
-                    .frame(width: 30, height: 30)
+                ChannelLogo(url: channel.icon, size: CGSize(width: 40, height: 30))
                 Text(channel.name)
                     .font(NeonFont.body(13, bold: true))
                     .foregroundColor(Neon.text)
@@ -327,6 +350,7 @@ private struct GuideRow: View {
             .background(HudShape().fill(Neon.surface.opacity(0.7)))
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { onActivate(nil) }
+            .contextMenu { MediaContextMenu(item: channel) }
             .help("Double-click to watch \(channel.name)")
 
             ZStack(alignment: .topLeading) {

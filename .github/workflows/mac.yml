@@ -27,7 +27,7 @@ concurrency:
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 75
     permissions:
       # Needed to publish the app as a download.
       contents: write
@@ -122,6 +122,53 @@ jobs:
             done
           done
           exit $failed
+
+      # Walk through every screen against a local test server (tests/mock_server.py): sign in,
+      # browse, play a film with subtitles, live TV, multiview, an M3U playlist with a guide, and
+      # a provider the size of the viewer's. Screenshots and a summary are published below.
+      - name: Tour the app on a test server
+        working-directory: mac
+        shell: bash
+        run: |
+          python3 Tests/mock_server.py --port 8080 > mock.log 2>&1 &
+          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:8080/health >/dev/null && break; sleep 1; done
+          mkdir -p tour
+          S=http://127.0.0.1:8080
+          export CHUD_TOUR="$PWD/tour" CHUD_TOUR_SERVER=$S CHUD_TOUR_BIG=1
+          export CHUD_TMDB_API=$S/tmdb/3 CHUD_TMDB_IMAGES=$S/tmdbimg CHUD_TRAKT_API=$S/trakt
+          export CHUD_OPENSUBS_API=$S/opensubs/api/v1 CHUD_CLAUDE_API=$S/claude CHUD_GITHUB_API=$S/github CHUD_TELEGRAM_API=$S/telegram
+          export CHUD_TEST_KEY_TMDB=test CHUD_TEST_KEY_TRAKT=test CHUD_TEST_KEY_OPENSUBTITLES=test CHUD_TEST_KEY_CLAUDE=test
+          set +e
+          perl -e 'alarm shift; exec @ARGV' 1500 "build/CHUD STREAMS.app/Contents/MacOS/ChudStreams" > tour.log 2>&1
+          code=$?
+          set -e
+          grep -E "^\[tour\]" tour.log | tail -80 || true
+          if [ -f tour/summary.txt ]; then
+            echo "::notice title=Tour summary::$(tr '\n' '|' < tour/summary.txt | cut -c1-3500)"
+          fi
+          if [ $code -ne 0 ]; then
+            echo "::warning title=Tour problems (exit $code)::$(grep -E 'FAIL|TOUR|Fatal|fatal|error' tour.log | tail -30 | tr '\n' '|' | cut -c1-4000)"
+          fi
+          cp tour.log mock.log tour/ 2>/dev/null || true
+
+      - name: Publish the tour screenshots
+        if: always()
+        working-directory: mac
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          [ -d tour ] || exit 0
+          gh release view mac-screenshots --repo "$REPO" >/dev/null 2>&1 || \
+            gh release create mac-screenshots --repo "$REPO" --target "${{ github.sha }}" \
+              --title "CHUD STREAMS for Mac: screenshots" \
+              --notes "Screenshots from the automated tour of the Mac app on GitHub's test Mac." \
+              --prerelease --latest=false || true
+          for f in $(gh release view mac-screenshots --repo "$REPO" --json assets -q '.assets[].name'); do
+            gh release delete-asset mac-screenshots "$f" --repo "$REPO" -y >/dev/null 2>&1 || true
+          done
+          find tour -type f -size 0 -delete
+          gh release upload mac-screenshots tour/* --repo "$REPO" --clobber
 
       - name: Package the app
         working-directory: mac
