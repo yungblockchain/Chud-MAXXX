@@ -123,7 +123,9 @@ enum SelfTest {
                 }
             }
             if failure != nil { break }
-            if mpv_render_context_update(render) & UInt64(MPV_RENDER_UPDATE_FRAME.rawValue) != 0 {
+            // Render every pass: mpv only moves on once a frame has been drawn.
+            _ = mpv_render_context_update(render)
+            do {
                 withUnsafeMutablePointer(to: &fbo) { fboPointer in
                     withUnsafeMutablePointer(to: &flip) { flipPointer in
                         var params = [
