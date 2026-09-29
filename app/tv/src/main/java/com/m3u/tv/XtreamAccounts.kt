@@ -19,6 +19,7 @@ import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.URLEncoder
 import java.net.UnknownHostException
+import java.util.UUID
 import javax.net.ssl.SSLException
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -199,7 +200,11 @@ internal object XtreamClient {
     }
 }
 
+/** Which kind of source the add-account form is filling in. */
+enum class SignInMode { Xtream, M3u }
+
 enum class XtreamSignInError {
+    MissingPlaylistUrl,
     MissingServer,
     MissingCredentials,
     Unreachable,
@@ -227,6 +232,10 @@ data class XtreamSignInForm(
     val server: String = "",
     val username: String = "",
     val password: String = "",
+    val mode: SignInMode = SignInMode.Xtream,
+    /** M3U mode: the playlist link and an optional XMLTV guide link. */
+    val playlistUrl: String = "",
+    val epgUrl: String = "",
     val phase: XtreamSignInPhase = XtreamSignInPhase.Idle,
 ) {
     val busy: Boolean
@@ -258,6 +267,12 @@ class XtreamAccountViewModel @Inject constructor(
         .map { playlists -> playlists.toXtreamAccounts() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Plain M3U playlists (not Xtream), for the Accounts page. */
+    val m3uPlaylists: StateFlow<List<Playlist>> = playlistRepository
+        .observeAll()
+        .map { playlists -> playlists.filter { it.source == DataSource.M3U } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private var signInJob: Job? = null
 
     init {
@@ -273,10 +288,119 @@ class XtreamAccountViewModel @Inject constructor(
     fun updateUsername(value: String) = _form.update { it.copy(username = value, phase = it.idleUnlessBusy()) }
     fun updatePassword(value: String) = _form.update { it.copy(password = value, phase = it.idleUnlessBusy()) }
 
+    fun updatePlaylistUrl(value: String) =
+        _form.update { it.copy(playlistUrl = value, phase = it.idleUnlessBusy()) }
+    fun updateEpgUrl(value: String) =
+        _form.update { it.copy(epgUrl = value, phase = it.idleUnlessBusy()) }
+
+    fun setMode(mode: SignInMode) = _form.update {
+        if (it.busy || it.mode == mode) it else it.copy(mode = mode, phase = XtreamSignInPhase.Idle)
+    }
+
     fun resetForm() {
         signInJob?.cancel()
-        _form.value = XtreamSignInForm()
+        _form.value = XtreamSignInForm(mode = _form.value.mode)
     }
+
+    /** Submits whichever form is showing. */
+    fun submit() = when (_form.value.mode) {
+        SignInMode.Xtream -> signIn()
+        SignInMode.M3u -> addM3u()
+    }
+
+    /**
+     * Adds a plain M3U playlist, then its XMLTV guide if one was given. An Xtream-style link
+     * (get.php?username=...&password=...) signs in as Xtream instead, which adds films, series
+     * and catch-up.
+     */
+    fun addM3u() {
+        val current = _form.value
+        if (current.busy) return
+        val url = current.playlistUrl.trim()
+        if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) {
+            fail(XtreamSignInError.MissingPlaylistUrl)
+            return
+        }
+        if (XtreamClient.credentialsFromLink(url) != null) {
+            _form.update { it.copy(mode = SignInMode.Xtream, server = url) }
+            signIn()
+            return
+        }
+        val epgUrl = current.epgUrl.trim().takeIf {
+            it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
+        }
+        val title = current.name.trim().ifEmpty { Uri.parse(url).host ?: url }
+        _form.update { it.copy(playlistUrl = url, phase = XtreamSignInPhase.Importing()) }
+        signInJob = viewModelScope.launch {
+            val workId = try {
+                SubscriptionWorker.m3u(workManager, title, url)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                fail(XtreamSignInError.ImportFailed)
+                return@launch
+            }
+            val finished = awaitImport(workId)
+            if (finished != null && finished.state != WorkInfo.State.SUCCEEDED) {
+                fail(
+                    XtreamSignInError.ImportFailed,
+                    detail = finished.outputData.getString(SubscriptionWorker.OUTPUT_STRING_ERROR),
+                )
+                return@launch
+            }
+            if (epgUrl != null) {
+                // The guide downloads in the background; the TV guide fills in when it's done.
+                runCatching {
+                    playlistRepository.insertEpgAsPlaylist(
+                        title = listOf(title, "EPG").joinToString(" "),
+                        epg = epgUrl,
+                    )
+                    playlistRepository.onUpdateEpgPlaylist(
+                        PlaylistRepository.EpgPlaylistUseCase.Check(
+                            playlistUrl = url,
+                            epgUrl = epgUrl,
+                            action = true,
+                        )
+                    )
+                    SubscriptionWorker.epg(workManager, url, ignoreCache = true)
+                }.onFailure { if (it is CancellationException) throw it }
+            }
+            _form.update { XtreamSignInForm(mode = SignInMode.M3u, phase = XtreamSignInPhase.Done) }
+        }
+    }
+
+    fun refreshPlaylist(playlist: Playlist) {
+        viewModelScope.launch {
+            runCatching { playlistRepository.refresh(playlist.url) }
+                .onFailure { if (it is CancellationException) throw it }
+        }
+    }
+
+    fun removePlaylist(playlist: Playlist) {
+        viewModelScope.launch {
+            runCatching {
+                playlist.epgUrls.forEach { epg -> playlistRepository.deleteEpgPlaylistAndProgrammes(epg) }
+                playlistRepository.unsubscribe(playlist.url)
+            }.onFailure { if (it is CancellationException) throw it }
+        }
+    }
+
+    /** Waits for an import to finish, showing how many entries have loaded meanwhile. */
+    private suspend fun awaitImport(workId: UUID): WorkInfo? = workManager
+        .getWorkInfoByIdFlow(workId)
+        .onEach { info ->
+            val count = info?.progress?.getInt(SubscriptionWorker.PROGRESS_INT_COUNT, 0) ?: 0
+            if (count > 0 && info?.state?.isFinished == false) {
+                _form.update { form ->
+                    if (form.phase is XtreamSignInPhase.Importing) {
+                        form.copy(phase = XtreamSignInPhase.Importing(count))
+                    } else {
+                        form
+                    }
+                }
+            }
+        }
+        .first { info -> info == null || info.state.isFinished }
 
     fun signIn() {
         val current = _form.value
@@ -346,22 +470,8 @@ class XtreamAccountViewModel @Inject constructor(
         _form.update { it.copy(phase = XtreamSignInPhase.Importing()) }
         _statuses.update { it + (accountKey(credentials) to status) }
 
-        val finished = workManager
-            .getWorkInfoByIdFlow(workId)
-            .onEach { info ->
-                // Big providers take minutes; show how far the download has got.
-                val count = info?.progress?.getInt(SubscriptionWorker.PROGRESS_INT_COUNT, 0) ?: 0
-                if (count > 0 && info?.state?.isFinished == false) {
-                    _form.update { form ->
-                        if (form.phase is XtreamSignInPhase.Importing) {
-                            form.copy(phase = XtreamSignInPhase.Importing(count))
-                        } else {
-                            form
-                        }
-                    }
-                }
-            }
-            .first { info -> info == null || info.state.isFinished }
+        // Big providers take minutes; the form shows how far the download has got.
+        val finished = awaitImport(workId)
         if (finished == null || finished.state == WorkInfo.State.SUCCEEDED) {
             // Keep the server so adding a second login on the same panel is quick.
             _form.update {

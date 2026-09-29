@@ -127,6 +127,19 @@ fun DialSettingsScreen(
         item { SettingsSection(stringResource(R.string.dial_settings_section_player)) }
         item {
             SettingRow(
+                label = stringResource(R.string.dial_setting_player),
+                value = stringResource(
+                    when (preferences.player) {
+                        DialPlayer.BuiltIn -> R.string.dial_value_player_built_in
+                        DialPlayer.Vlc -> R.string.dial_value_player_vlc
+                        DialPlayer.Ask -> R.string.dial_value_player_ask
+                    }
+                ),
+                onClick = { onUpdate { it.copy(player = DialPlayer.entries.nextAfter(it.player)) } },
+            )
+        }
+        item {
+            SettingRow(
                 label = stringResource(R.string.dial_setting_controls_timeout),
                 value = stringResource(R.string.dial_value_seconds, preferences.controlsTimeoutSeconds),
                 onClick = {

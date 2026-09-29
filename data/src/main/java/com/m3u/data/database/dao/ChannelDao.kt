@@ -178,10 +178,26 @@ interface ChannelDao {
             .toTypedArray()
         if (bases.isEmpty()) return
         upsertMetadataBases(*bases)
-        bases.forEach { base ->
-            recomputeEffectiveMetadata(base.playlistUrl, base.channelReference)
+        // Only references an extension has an overlay for can end up different from the row
+        // just written, so only those are recomputed. Recomputing every reference made big
+        // imports quadratic: each UPDATE scans the playlist's rows, so 200k entries never
+        // finished on a Fire TV.
+        bases.groupBy { it.playlistUrl }.forEach { (playlistUrl, playlistBases) ->
+            val overlaid = getOverlayReferences(playlistUrl).toHashSet()
+            if (overlaid.isEmpty()) return@forEach
+            playlistBases
+                .filter { base -> base.channelReference in overlaid }
+                .forEach { base -> recomputeEffectiveMetadata(base.playlistUrl, base.channelReference) }
         }
     }
+
+    @Query(
+        """
+        SELECT DISTINCT channel_reference FROM extension_channel_metadata_overlays
+        WHERE playlist_url = :playlistUrl
+        """
+    )
+    suspend fun getOverlayReferences(playlistUrl: String): List<String>
 
     @Query(
         """

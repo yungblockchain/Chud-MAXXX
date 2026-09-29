@@ -50,6 +50,12 @@ interface PlayerManager {
     val cwPosition: SharedFlow<Long>
     suspend fun onResetPlayback(channelUrl: String)
     suspend fun getCwPosition(channelUrl: String): Long
+
+    /**
+     * Saves a resume position reported by an outside player (VLC and others hand back where
+     * they stopped), so "Resume from" works the same as with the built-in player.
+     */
+    suspend fun saveCwPosition(channelUrl: String, positionMs: Long)
     suspend fun reloadThumbnail(channelUrl: String): Uri?
     suspend fun syncThumbnail(channelUrl: String): Uri?
 }

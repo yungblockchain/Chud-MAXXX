@@ -75,8 +75,17 @@ sign_in() {
     # Past the optional name field to the Sign in button.
     press $DOWN; hide_keyboard
     press $DOWN; hide_keyboard
+    local starts
+    starts=$(adb logcat -d | grep -c "Starting work for com.m3u.data.worker.SubscriptionWorker")
     press $OK
     sleep 25
+    # The emulator's key injection occasionally garbles a field; if no import started, the form
+    # is still showing its message with focus on Sign in, so try once more.
+    if [ "$(adb logcat -d | grep -c "Starting work for com.m3u.data.worker.SubscriptionWorker")" -le "$starts" ]; then
+        shot "$3-first-try"
+        press $OK
+        sleep 25
+    fi
     shot "$3-signed-in"
     # The account check and the channel import are separate steps; flag a failed import.
     if adb logcat -d | grep -q "Worker result FAILURE .*SubscriptionWorker"; then
@@ -173,6 +182,28 @@ if check "launch"; then
                 echo "::error title=Out of memory on API $API::The big account ran the app out of memory."
             fi
         fi
+
+        # A plain M3U playlist with an XMLTV guide, added from the sign-in form's M3U mode.
+        adb shell pm clear "$PKG" >/dev/null
+        m3u_before=$(count_results SUCCESS)
+        open_tab account 8
+        press $UP $RIGHT $OK; sleep 1          # the "M3U link" switch above the fields
+        press $DOWN; hide_keyboard
+        type_text "http://10.0.2.2:8080/playlist/live.m3u"
+        press $DOWN; hide_keyboard
+        type_text "http://10.0.2.2:8080/epg.xml"
+        shot 40-m3u-form
+        press $DOWN; hide_keyboard             # name
+        press $DOWN; hide_keyboard             # Add playlist
+        press $OK
+        sleep 20; shot 41-m3u-added
+        if [ "$(count_results SUCCESS)" -le "$m3u_before" ]; then
+            echo "::error title=M3U playlist did not load on API $API::See logcat-api$API.txt."
+        fi
+        open_tab guide 14;   shot 42-m3u-guide
+        open_tab account 8;  shot 43-m3u-accounts
+        open_tab claude 8;   shot 44-claude-setup
+        check "m3u and claude"
     fi
 fi
 

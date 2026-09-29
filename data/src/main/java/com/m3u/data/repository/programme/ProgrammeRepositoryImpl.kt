@@ -153,6 +153,18 @@ internal class ProgrammeRepositoryImpl @Inject constructor(
         ).associateBy { it.channelId }
     }
 
+    override suspend fun getProgrammesInRange(
+        playlistUrl: String,
+        relationId: String,
+        from: Long,
+        to: Long,
+    ): List<Programme> {
+        val playlist = playlistDao.get(playlistUrl) ?: return emptyList()
+        val epgUrls = playlist.epgUrlsOrXtreamXmlUrl()
+        if (epgUrls.isEmpty() || relationId.isBlank() || to <= from) return emptyList()
+        return programmeDao.getInRange(epgUrls, relationId, from, to, MAX_RANGE_PROGRAMMES)
+    }
+
     private fun checkOrRefreshProgrammesOrThrowImpl(
         ownerPlaylistUrls: List<String>,
         epgUrls: List<String>,
@@ -288,6 +300,7 @@ internal class ProgrammeRepositoryImpl @Inject constructor(
     }
 
     private companion object {
+        const val MAX_RANGE_PROGRAMMES = 500
         const val EPG_INSERT_BATCH_SIZE = 1_000
         const val EPG_STAGING_DIRECTORY = "epg-import-staging"
         val EPG_STAGING_LIMITS = BoundedJsonlRecordStaging.Limits(

@@ -26,6 +26,8 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,6 +70,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
+import com.m3u.data.database.model.Playlist
 import com.m3u.data.worker.SubscriptionWorker
 import java.text.DateFormat
 import java.util.Date
@@ -99,6 +102,7 @@ fun XtreamSignInScreen(
         }
     }
 
+    val m3u = form.mode == SignInMode.M3u
     Row(
         horizontalArrangement = Arrangement.spacedBy(56.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -113,7 +117,7 @@ fun XtreamSignInScreen(
                 .widthIn(max = 520.dp)
         ) {
             Text(
-                text = stringResource(R.string.dial_signin_title),
+                text = stringResource(if (m3u) R.string.dial_m3u_title else R.string.dial_signin_title),
                 color = TvColors.TextPrimary,
                 fontFamily = TvFonts.Body,
                 fontWeight = FontWeight.Bold,
@@ -121,7 +125,7 @@ fun XtreamSignInScreen(
                 lineHeight = 42.sp,
             )
             Text(
-                text = stringResource(R.string.dial_signin_body),
+                text = stringResource(if (m3u) R.string.dial_m3u_body else R.string.dial_signin_body),
                 color = TvColors.TextSecondary,
                 fontFamily = TvFonts.Body,
                 fontSize = 18.sp,
@@ -144,6 +148,42 @@ fun XtreamSignInScreen(
                 .verticalScroll(rememberScrollState())
                 .focusGroup()
         ) {
+            // Xtream login or a plain M3U link.
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TvActionButton(
+                    text = stringResource(R.string.dial_signin_mode_xtream),
+                    icon = Icons.Rounded.Dns,
+                    selected = !m3u,
+                    onClick = { viewModel.setMode(SignInMode.Xtream) },
+                )
+                TvActionButton(
+                    text = stringResource(R.string.dial_signin_mode_m3u),
+                    icon = Icons.Rounded.Link,
+                    selected = m3u,
+                    onClick = { viewModel.setMode(SignInMode.M3u) },
+                )
+            }
+            if (m3u) {
+                DialTextField(
+                    label = stringResource(R.string.dial_field_playlist_url),
+                    value = form.playlistUrl,
+                    onValueChange = viewModel::updatePlaylistUrl,
+                    placeholder = stringResource(R.string.dial_field_playlist_url_placeholder),
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Next,
+                    readOnly = form.busy,
+                    focusRequester = serverFocus,
+                )
+                DialTextField(
+                    label = stringResource(R.string.dial_field_epg_url),
+                    value = form.epgUrl,
+                    onValueChange = viewModel::updateEpgUrl,
+                    placeholder = stringResource(R.string.dial_field_epg_url_placeholder),
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Next,
+                    readOnly = form.busy,
+                )
+            } else {
             DialTextField(
                 label = stringResource(R.string.dial_field_server),
                 value = form.server,
@@ -171,6 +211,7 @@ fun XtreamSignInScreen(
                 readOnly = form.busy,
                 secret = true,
             )
+            }
             DialTextField(
                 label = stringResource(R.string.dial_field_name),
                 value = form.name,
@@ -181,7 +222,7 @@ fun XtreamSignInScreen(
                 readOnly = form.busy,
                 onDone = {
                     runCatching { signInFocus.requestFocus() }
-                    viewModel.signIn()
+                    viewModel.submit()
                 },
             )
             Row(
@@ -189,9 +230,11 @@ fun XtreamSignInScreen(
                 modifier = Modifier.padding(top = 8.dp)
             ) {
                 TvActionButton(
-                    text = stringResource(R.string.dial_action_sign_in),
+                    text = stringResource(
+                        if (m3u) R.string.dial_action_add_playlist else R.string.dial_action_sign_in
+                    ),
                     icon = Icons.Rounded.CheckCircle,
-                    onClick = viewModel::signIn,
+                    onClick = viewModel::submit,
                     enabled = !form.busy,
                     focusableWhenDisabled = true,
                     focusRequester = signInFocus,
@@ -204,25 +247,32 @@ fun XtreamSignInScreen(
                     )
                 }
             }
-            SignInMessage(form.phase)
+            SignInMessage(form.phase, m3u)
         }
     }
 }
 
 @Composable
-private fun SignInMessage(phase: XtreamSignInPhase) {
+private fun SignInMessage(phase: XtreamSignInPhase, m3u: Boolean) {
     val (text, color) = when (phase) {
         XtreamSignInPhase.Idle -> return
         XtreamSignInPhase.Checking ->
             stringResource(R.string.dial_signin_checking) to TvColors.TextSecondary
-        is XtreamSignInPhase.Importing -> if (phase.count > 0) {
-            stringResource(R.string.dial_signin_importing_count, phase.count) to TvColors.TextSecondary
-        } else {
-            stringResource(R.string.dial_signin_importing) to TvColors.TextSecondary
-        }
+        is XtreamSignInPhase.Importing -> when {
+            m3u && phase.count > 0 -> stringResource(R.string.dial_m3u_importing_count, phase.count)
+            m3u -> stringResource(R.string.dial_m3u_importing)
+            phase.count > 0 -> stringResource(R.string.dial_signin_importing_count, phase.count)
+            else -> stringResource(R.string.dial_signin_importing)
+        } to TvColors.TextSecondary
         XtreamSignInPhase.Done ->
-            stringResource(R.string.dial_signin_done) to TvColors.Positive
-        is XtreamSignInPhase.Failed -> signInErrorText(phase) to TvColors.Danger
+            stringResource(if (m3u) R.string.dial_m3u_done else R.string.dial_signin_done) to TvColors.Positive
+        is XtreamSignInPhase.Failed -> when {
+            m3u && phase.error == XtreamSignInError.ImportFailed &&
+                phase.detail != SubscriptionWorker.FAILURE_STORAGE &&
+                phase.detail != SubscriptionWorker.FAILURE_TOO_LARGE ->
+                stringResource(R.string.dial_error_m3u_import)
+            else -> signInErrorText(phase)
+        } to TvColors.Danger
     }
     Text(
         text = text,
@@ -253,6 +303,7 @@ private fun unreachableText(status: XtreamAccountStatus.Unreachable?): String {
 
 @Composable
 private fun signInErrorText(failure: XtreamSignInPhase.Failed): String = when (failure.error) {
+    XtreamSignInError.MissingPlaylistUrl -> stringResource(R.string.dial_error_missing_playlist_url)
     XtreamSignInError.MissingServer -> stringResource(R.string.dial_error_missing_server)
     XtreamSignInError.MissingCredentials -> stringResource(R.string.dial_error_missing_credentials)
     XtreamSignInError.Unreachable -> unreachableText(failure.unreachable)
@@ -388,18 +439,20 @@ fun XtreamAccountScreen(
     viewModel: XtreamAccountViewModel = hiltViewModel(),
 ) {
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val m3uPlaylists by viewModel.m3uPlaylists.collectAsStateWithLifecycle()
     val statuses by viewModel.statuses.collectAsStateWithLifecycle()
     val form by viewModel.form.collectAsStateWithLifecycle()
     var adding by rememberSaveable { mutableStateOf(false) }
+    val nothingAdded = accounts.isEmpty() && m3uPlaylists.isEmpty()
 
     LaunchedEffect(form.phase) {
         if (adding && form.phase == XtreamSignInPhase.Done) adding = false
     }
 
-    if (accounts.isEmpty() || adding) {
+    if (nothingAdded || adding) {
         XtreamSignInScreen(
             viewModel = viewModel,
-            onCancel = if (accounts.isEmpty()) null else {
+            onCancel = if (nothingAdded) null else {
                 {
                     viewModel.resetForm()
                     adding = false
@@ -428,6 +481,13 @@ fun XtreamAccountScreen(
                 status = statuses[account.key] ?: XtreamAccountStatus.Loading,
                 onRefresh = { viewModel.refreshStatus(account) },
                 onRemove = { viewModel.remove(account) },
+            )
+        }
+        items(m3uPlaylists, key = { "m3u-${it.url}" }) { playlist ->
+            M3uPlaylistCard(
+                playlist = playlist,
+                onRefresh = { viewModel.refreshPlaylist(playlist) },
+                onRemove = { viewModel.removePlaylist(playlist) },
             )
         }
         item {
@@ -512,6 +572,69 @@ private fun AccountCard(
                 onClick = onRefresh,
                 enabled = status != XtreamAccountStatus.Loading,
                 focusableWhenDisabled = true,
+            )
+            TvActionButton(
+                text = stringResource(
+                    if (confirmingRemove) R.string.dial_action_remove_confirm
+                    else R.string.dial_action_remove
+                ),
+                icon = Icons.Rounded.Delete,
+                onClick = {
+                    if (confirmingRemove) onRemove() else confirmingRemove = true
+                },
+            )
+        }
+    }
+}
+
+/** A plain M3U playlist on the Accounts page: its name and link, reload and remove. */
+@Composable
+private fun M3uPlaylistCard(
+    playlist: Playlist,
+    onRefresh: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    var confirmingRemove by remember(playlist.url) { mutableStateOf(false) }
+    LaunchedEffect(confirmingRemove) {
+        if (confirmingRemove) {
+            delay(4_000)
+            confirmingRemove = false
+        }
+    }
+    Column(
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 880.dp)
+            .background(TvColors.Surface.copy(alpha = 0.86f), RoundedCornerShape(16.dp))
+            .padding(24.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = playlist.title,
+                color = TvColors.TextPrimary,
+                fontFamily = TvFonts.Body,
+                fontWeight = FontWeight.Bold,
+                fontSize = 24.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = stringResource(
+                    if (playlist.epgUrls.isEmpty()) R.string.dial_m3u_card_no_guide
+                    else R.string.dial_m3u_card_with_guide
+                ),
+                color = TvColors.TextSecondary,
+                fontFamily = TvFonts.Body,
+                fontSize = 15.sp,
+                maxLines = 1,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            TvActionButton(
+                text = stringResource(R.string.dial_action_reload),
+                icon = Icons.Rounded.Refresh,
+                onClick = onRefresh,
             )
             TvActionButton(
                 text = stringResource(

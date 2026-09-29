@@ -86,6 +86,12 @@ internal fun Application.mockServerModule() {
             call.respondText("ok", ContentType.Text.Plain)
         }
 
+        // XMLTV guide for the channels in /playlist/live.m3u (tvg-id mock.news, mock.sports,
+        // mock.kids), twelve hours around the current time.
+        get("/epg.xml") {
+            call.respondText(xmltvGuide(), ContentType.Application.Xml)
+        }
+
         // Logos and posters referenced by the playlists and Xtream streams (news.png, movie.png…).
         get("/images/{name}.png") {
             call.respondBytes(
@@ -873,6 +879,47 @@ private val epgTitles = mapOf(
     1002 to listOf("Match Day Live", "Goals Extra", "Fight Night Preview", "Track and Field", "Classic Finals"),
     1003 to listOf("Cartoon Club", "Space Pals", "Science Lab", "Story Time", "Puzzle Quest"),
 )
+
+/** XMLTV for the M3U playlist's channels, reusing the Xtream schedule's titles and lengths. */
+private fun xmltvGuide(): String {
+    val channels = listOf(
+        Triple("mock.news", "Mock News", 1001),
+        Triple("mock.sports", "Mock Sports", 1002),
+        Triple("mock.kids", "Mock Kids", 1003),
+    )
+    val format = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
+    val nowSeconds = System.currentTimeMillis() / 1000
+    val hour = 3600L
+    val firstStart = nowSeconds - nowSeconds % hour - 3 * hour
+    val lastEnd = firstStart + 12 * hour
+    return buildString {
+        append("""<?xml version="1.0" encoding="UTF-8"?>""").append('\n')
+        append("<tv generator-info-name=\"m3u-mock-server\">\n")
+        channels.forEach { (id, name, _) ->
+            append("  <channel id=\"").append(id).append("\"><display-name>")
+                .append(name).append("</display-name></channel>\n")
+        }
+        channels.forEach { (id, _, streamId) ->
+            val titles = epgTitles.getValue(streamId)
+            var start = firstStart
+            var index = 0
+            while (start < lastEnd) {
+                val end = start + epgLengths[(index + streamId) % epgLengths.size] * 60L
+                append("  <programme start=\"").append(format.format(Date(start * 1000)))
+                    .append("\" stop=\"").append(format.format(Date(end * 1000)))
+                    .append("\" channel=\"").append(id).append("\"><title>")
+                    .append(titles[index % titles.size]).append("</title><desc>")
+                    .append(titles[index % titles.size]).append(" from the mock XMLTV guide.")
+                    .append("</desc></programme>\n")
+                start = end
+                index++
+            }
+        }
+        append("</tv>\n")
+    }
+}
 
 /** Schedule for the "big" account's channels. */
 private val bigEpgTitles = listOf("Breakfast Show", "Headlines", "Live Match", "Film Club", "Late Talk", "Documentary")

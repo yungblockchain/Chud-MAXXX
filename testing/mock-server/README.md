@@ -53,6 +53,9 @@ physical device:
 - `/hls/{channel}/index.m3u8` returns a small media playlist.
 - `/hls/{channel}/segment-{number}.ts` returns deterministic placeholder TS bytes.
 - `/images/{name}.png` returns a generated 400×600 poster for the logos and posters the fixtures use.
+- `/epg.xml` returns an XMLTV guide for the channels in `/playlist/live.m3u`, twelve hours around now.
+- Xtream account `big` / `big` is provider-sized: 50,000 live channels, 130,000 films (a few
+  deliberately malformed, and the list starts after 12 seconds) and 20,000 series.
 - `/player_api.php?username=m3u&password=m3u` returns Xtream account/server info.
 - `/player_api.php?username=m3u&password=m3u&action=get_live_categories`
 - `/player_api.php?username=m3u&password=m3u&action=get_live_streams`

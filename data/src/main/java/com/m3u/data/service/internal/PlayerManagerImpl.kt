@@ -996,6 +996,16 @@ class PlayerManagerImpl @Inject constructor(
         return channelPreference?.cwPosition ?: -1L
     }
 
+    override suspend fun saveCwPosition(channelUrl: String, positionMs: Long) {
+        if (channelUrl.isEmpty()) return
+        val channelPreference = getChannelPreference(channelUrl)
+        val position = positionMs.takeIf { it > 0L } ?: -1L
+        addChannelPreference(
+            channelUrl,
+            channelPreference?.copy(cwPosition = position) ?: ChannelPreference(cwPosition = position)
+        )
+    }
+
     private suspend fun onPlaybackIdle() {}
     private suspend fun onPlaybackBuffering() {}
 

@@ -20,6 +20,12 @@ enum class DialAspect { Fit, Stretch, Zoom }
 
 enum class DialGuideLayout { Grid, List }
 
+/**
+ * Which player opens streams: the built-in one (Media3 ExoPlayer, with the channel banner, zapping
+ * and catch-up controls), VLC, or a pick from the installed video players each time.
+ */
+enum class DialPlayer { BuiltIn, Vlc, Ask }
+
 @Immutable
 data class DialPreferences(
     val startup: DialStartup = DialStartup.Home,
@@ -34,6 +40,7 @@ data class DialPreferences(
     val guideLayout: DialGuideLayout = DialGuideLayout.Grid,
     val launchAnimation: Boolean = true,
     val matchFrameRate: Boolean = false,
+    val player: DialPlayer = DialPlayer.BuiltIn,
 ) {
     companion object {
         val CONTROLS_TIMEOUT_OPTIONS = listOf(3, 5, 8, 12)
@@ -99,6 +106,7 @@ class DialSettingsStore @Inject constructor(
             .putString(KEY_GUIDE_LAYOUT, next.guideLayout.name)
             .putBoolean(KEY_LAUNCH_ANIMATION, next.launchAnimation)
             .putBoolean(KEY_MATCH_FRAME_RATE, next.matchFrameRate)
+            .putString(KEY_PLAYER, next.player.name)
             .apply()
     }
 
@@ -180,6 +188,9 @@ class DialSettingsStore @Inject constructor(
                 ?: defaults.guideLayout,
             launchAnimation = prefs.getBoolean(KEY_LAUNCH_ANIMATION, defaults.launchAnimation),
             matchFrameRate = prefs.getBoolean(KEY_MATCH_FRAME_RATE, defaults.matchFrameRate),
+            player = prefs.getString(KEY_PLAYER, null)
+                ?.let { name -> DialPlayer.entries.firstOrNull { it.name == name } }
+                ?: defaults.player,
         )
     }
 
@@ -202,6 +213,7 @@ class DialSettingsStore @Inject constructor(
         const val KEY_GUIDE_LAYOUT = "guide_layout"
         const val KEY_LAUNCH_ANIMATION = "launch_animation"
         const val KEY_MATCH_FRAME_RATE = "match_frame_rate"
+        const val KEY_PLAYER = "player"
         const val KEY_LAST_CHANNEL = "last_channel"
         const val KEY_HISTORY = "on_demand_history"
         const val KEY_WATCHLIST = "markets_watchlist"

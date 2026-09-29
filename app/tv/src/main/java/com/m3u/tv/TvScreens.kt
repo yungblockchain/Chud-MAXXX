@@ -155,6 +155,7 @@ fun TvBrowsePane(
     onSelectCategory: (String?) -> Unit = {},
     onSearch: (String) -> Unit = {},
     guideContent: @Composable () -> Unit = {},
+    claudeContent: @Composable () -> Unit = {},
     dialSettingsContent: @Composable () -> Unit = {},
 ) {
     Box(
@@ -166,7 +167,8 @@ fun TvBrowsePane(
             state.playlists.isEmpty() &&
             destination != TvDestination.Status &&
             destination != TvDestination.Markets &&
-            destination != TvDestination.Games
+            destination != TvDestination.Games &&
+            destination != TvDestination.Claude
         ) {
             // Dial: first run goes straight to Xtream sign-in on the TV itself, instead of
             // asking for the phone app. Pairing from the phone app still works as before.
@@ -203,6 +205,8 @@ fun TvBrowsePane(
                 TvDestination.Markets -> MarketsScreen()
 
                 TvDestination.Games -> GamesScreen()
+
+                TvDestination.Claude -> claudeContent()
 
                 TvDestination.Account -> XtreamAccountScreen()
 

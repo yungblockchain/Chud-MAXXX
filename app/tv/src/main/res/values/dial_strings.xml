@@ -39,7 +39,7 @@
 
     <!-- Accounts -->
     <string name="dial_accounts_title">Accounts</string>
-    <string name="dial_accounts_subtitle">Xtream logins on this device</string>
+    <string name="dial_accounts_subtitle">Xtream logins and M3U playlists on this device</string>
     <string name="dial_account_login">%1$s on %2$s</string>
     <string name="dial_account_status_label">Status</string>
     <string name="dial_account_expires_label">Expires</string>
@@ -217,4 +217,63 @@
     <string name="dial_error_import_network">Signed in, but the connection dropped while loading channels. Check the Fire TV\'s internet and try again.</string>
     <string name="dial_error_import_storage">Signed in, but the Fire TV is out of storage space for the channel list. Free some space and try again.</string>
     <string name="dial_error_import_too_large">Signed in, but this account has more than a million channels, films and series, which is more than CHUD STREAMS can hold.</string>
+    <!-- M3U playlists -->
+    <string name="dial_signin_mode_xtream">Xtream login</string>
+    <string name="dial_signin_mode_m3u">M3U link</string>
+    <string name="dial_m3u_title">Add an M3U playlist</string>
+    <string name="dial_m3u_body">Enter the playlist link your provider gave you. It usually ends in .m3u or .m3u8. Add a guide (XMLTV) link as well if you have one, to fill the TV guide.</string>
+    <string name="dial_field_playlist_url">Playlist link</string>
+    <string name="dial_field_playlist_url_placeholder">http://example.com/playlist.m3u</string>
+    <string name="dial_field_epg_url">Guide (XMLTV) link, optional</string>
+    <string name="dial_field_epg_url_placeholder">http://example.com/epg.xml</string>
+    <string name="dial_action_add_playlist">Add playlist</string>
+    <string name="dial_action_reload">Reload</string>
+    <string name="dial_m3u_importing">Loading the playlist. Large lists can take a few minutes.</string>
+    <string name="dial_m3u_importing_count">Loading the playlist: %1$,d channels so far. Large lists can take a few minutes.</string>
+    <string name="dial_m3u_done">Playlist added. Its channels are in Home and Library.</string>
+    <string name="dial_m3u_card_no_guide">M3U playlist</string>
+    <string name="dial_m3u_card_with_guide">M3U playlist with a TV guide</string>
+    <string name="dial_error_missing_playlist_url">Enter the playlist link, starting with http:// or https://.</string>
+    <string name="dial_error_m3u_import">Couldn\'t load that playlist. Check the link opens in a browser, then try again.</string>
+    <!-- Player choice -->
+    <string name="dial_setting_player">Play with</string>
+    <string name="dial_value_player_built_in">Built-in player (ExoPlayer)</string>
+    <string name="dial_value_player_vlc">VLC</string>
+    <string name="dial_value_player_ask">Choose each time</string>
+    <string name="dial_player_choose">Play with</string>
+    <string name="dial_player_none">No video player app is installed for this. Install VLC from the Amazon Appstore, or pick the built-in player in Settings.</string>
+    <string name="dial_player_vlc_missing">VLC isn\'t installed, so this plays in the built-in player. Get VLC from the Amazon Appstore.</string>
+    <!-- Ask Claude -->
+    <string name="dial_nav_claude">Ask Claude</string>
+    <string name="dial_claude_title">Ask Claude</string>
+    <string name="dial_claude_subtitle">Knows your channels, films and series · %1$s</string>
+    <string name="dial_claude_intro">Ask for something to watch, what\'s on right now, or where to find a show. Claude looks through your own library and can start it for you.</string>
+    <string name="dial_claude_setup_title">Connect Claude</string>
+    <string name="dial_claude_setup_body">Use your own Anthropic API key to chat with Claude about what to watch. Keys start with sk-ant- and come from console.anthropic.com. Chats are charged to your Anthropic account.</string>
+    <string name="dial_claude_setup_tip">The key is stored encrypted on this Fire TV and only ever sent to Anthropic. Tip: the Amazon Fire TV app on your phone has a keyboard you can paste the key into.</string>
+    <string name="dial_claude_key_label">Anthropic API key</string>
+    <string name="dial_claude_key_placeholder">sk-ant-…</string>
+    <string name="dial_claude_key_save">Save and check key</string>
+    <string name="dial_claude_key_checking">Checking the key with Anthropic…</string>
+    <string name="dial_claude_model_haiku">Haiku 4.5 (fastest)</string>
+    <string name="dial_claude_model_sonnet">Sonnet 5.5</string>
+    <string name="dial_claude_model_opus">Opus 5.5 (smartest)</string>
+    <string name="dial_claude_new_chat">New chat</string>
+    <string name="dial_claude_forget_key">Remove key</string>
+    <string name="dial_claude_thinking">Claude is looking through your library…</string>
+    <string name="dial_claude_input_label">Message</string>
+    <string name="dial_claude_input_placeholder">e.g. a funny film under two hours</string>
+    <string name="dial_claude_send">Send</string>
+    <string name="dial_claude_suggest_on_now">What\'s good on right now?</string>
+    <string name="dial_claude_suggest_film">Pick me a film for tonight</string>
+    <string name="dial_claude_suggest_series">Find a series to binge</string>
+    <string name="dial_claude_suggest_sport">Any live sport on?</string>
+    <string name="dial_claude_error_no_key">Add your Anthropic API key first.</string>
+    <string name="dial_claude_error_rejected">Anthropic didn\'t accept that API key. Check it and try again.</string>
+    <string name="dial_claude_error_credit">Your Anthropic account is out of credit. Add some at console.anthropic.com.</string>
+    <string name="dial_claude_error_rate">Too many requests at once. Wait a moment and try again.</string>
+    <string name="dial_claude_error_busy">Claude is busy right now. Try again in a moment.</string>
+    <string name="dial_claude_error_offline">Couldn\'t reach Anthropic. Check the Fire TV\'s internet connection.</string>
+    <string name="dial_claude_error_other">Something went wrong talking to Claude (%1$s). Try again.</string>
+    <string name="dial_claude_error_no_response">no response</string>
 </resources>

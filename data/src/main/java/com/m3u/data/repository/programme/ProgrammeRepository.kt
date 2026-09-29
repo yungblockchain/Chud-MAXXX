@@ -30,4 +30,15 @@ interface ProgrammeRepository {
     suspend fun getById(id: Int): Programme?
     suspend fun getProgrammeCurrently(channelId: Int): Programme?
     suspend fun getProgrammesCurrently(playlistUrl: String): Map<String, Programme>
+
+    /**
+     * Programmes from the playlist's EPG (XMLTV) for one channel ([relationId], its tvg-id)
+     * overlapping the time range [from, to) in epoch milliseconds.
+     */
+    suspend fun getProgrammesInRange(
+        playlistUrl: String,
+        relationId: String,
+        from: Long,
+        to: Long,
+    ): List<Programme>
 }

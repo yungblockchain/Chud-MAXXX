@@ -40,6 +40,24 @@ interface ProgrammeDao {
     @Query("DELETE FROM programmes WHERE epg_url = :epgUrl")
     suspend fun cleanByEpgUrl(epgUrl: String)
 
+    /** One channel's programmes overlapping [from, to), for a guide timeline. */
+    @Query(
+        """
+        SELECT * FROM programmes
+        WHERE epg_url IN (:epgUrls) AND relation_id = :relationId
+        AND "end" > :from AND start < :to
+        ORDER BY start, id
+        LIMIT :limit
+        """
+    )
+    suspend fun getInRange(
+        epgUrls: List<String>,
+        relationId: String,
+        from: Long,
+        to: Long,
+        limit: Int,
+    ): List<Programme>
+
     @Query("SELECT * FROM programmes ORDER BY start")
     fun observeAll(): Flow<List<Programme>>
 

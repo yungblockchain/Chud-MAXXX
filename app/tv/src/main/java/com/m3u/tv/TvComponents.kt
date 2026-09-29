@@ -201,10 +201,11 @@ fun TvNavigationRail(
         Column(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
-            // Tabs are centred in the space below the logo so they never overlap it.
+            // Tabs are centred in the space between the logo and the pairing code, so they never
+            // overlap either; nine of them fit a 540dp-tall (1080p) screen.
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 68.dp)
+                .padding(top = 68.dp, bottom = 18.dp)
         ) {
             TvDestination.entries.forEach { destination ->
                 RailItem(
@@ -212,7 +213,7 @@ fun TvNavigationRail(
                     selected = destination == selected,
                     onClick = { onSelect(destination) }
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(4.dp))
             }
         }
     }
@@ -231,7 +232,7 @@ private fun RailItem(
         semanticsLabel = destination.label(),
         shape = RoundedCornerShape(16.dp),
         semanticRole = Role.Tab,
-        modifier = Modifier.size(48.dp)
+        modifier = Modifier.size(44.dp)
     ) { focused ->
         Icon(
             imageVector = destination.icon,
@@ -252,6 +253,7 @@ private fun TvDestination.label(): String = when (this) {
     TvDestination.Favorites -> stringResource(string.tv_favorites_title)
     TvDestination.Markets -> stringResource(R.string.dial_nav_markets)
     TvDestination.Games -> stringResource(R.string.dial_nav_games)
+    TvDestination.Claude -> stringResource(R.string.dial_nav_claude)
     TvDestination.Account -> stringResource(R.string.dial_nav_account)
     TvDestination.Status -> stringResource(string.tv_settings_title)
 }

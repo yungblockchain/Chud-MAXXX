@@ -1,8 +1,12 @@
 package com.m3u.tv
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.view.KeyEvent
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -109,14 +113,47 @@ fun App(
         }
     }
 
-    // Films and series open their details page; live channels play straight away.
+    // Films and series open their details page; live channels play straight away, in the
+    // built-in player or in VLC / another app if that's the choice in Settings.
     val openOrPlay: (Channel) -> Unit = { channel ->
         val playlist = state.playlists.firstOrNull { it.url == channel.playlistUrl }
         if (playlist != null && (playlist.isVod || playlist.isSeries)) {
             dial.openDetails(channel, playlist)
+        } else if (dial.playsExternally(channel)) {
+            dial.playLiveExternally(channel)
         } else {
             viewModel.play(channel)
             surface = TvSurface.Player
+        }
+    }
+
+    // Outside players: start them, and save where they stopped when they return.
+    var pendingExternal by remember { mutableStateOf<ExternalPlayback?>(null) }
+    val externalLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val playback = pendingExternal ?: return@rememberLauncherForActivityResult
+        pendingExternal = null
+        ExternalPlayers.resultOf(result.data)?.let { (position, duration) ->
+            dial.onExternalResult(playback, position, duration)
+        }
+    }
+    val chooserTitle = stringResource(R.string.dial_player_choose)
+    val noPlayerMessage = stringResource(R.string.dial_player_none)
+    LaunchedEffect(dial) {
+        dial.externalPlayback.collect { playback ->
+            pendingExternal = playback
+            try {
+                externalLauncher.launch(ExternalPlayers.intentFor(playback, chooserTitle))
+            } catch (_: ActivityNotFoundException) {
+                pendingExternal = null
+                Toast.makeText(context, noPlayerMessage, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    LaunchedEffect(dial) {
+        dial.messages.collect { message ->
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -244,14 +281,25 @@ fun App(
                             onSelectPlaylist = viewModel::selectPlaylist,
                             onSelectCategory = viewModel::selectCategory,
                             onPlayLive = { channel ->
-                                viewModel.play(channel)
-                                surface = TvSurface.Player
+                                if (dial.playsExternally(channel)) {
+                                    dial.playLiveExternally(channel)
+                                } else {
+                                    viewModel.play(channel)
+                                    surface = TvSurface.Player
+                                }
                             },
                             onPlayCatchUp = { channel, programme ->
-                                dial.playCatchUp(channel, programme)
-                                surface = TvSurface.Player
+                                if (dial.playsExternally(channel)) {
+                                    dial.playCatchUp(channel, programme, external = true)
+                                } else {
+                                    dial.playCatchUp(channel, programme)
+                                    surface = TvSurface.Player
+                                }
                             },
                         )
+                    },
+                    claudeContent = {
+                        ClaudeScreen(onPlay = openOrPlay)
                     },
                     dialSettingsContent = {
                         DialSettingsScreen(
@@ -270,16 +318,28 @@ fun App(
                 active = surface == TvSurface.Browse,
                 isFavourite = state.favorites.any { it.id == current.channel.id },
                 onPlayFilm = { fromStart ->
-                    dial.playFilm(current.channel, fromStart)
-                    surface = TvSurface.Player
+                    if (dial.playsExternally(current.channel)) {
+                        dial.playFilm(current.channel, fromStart, external = true)
+                    } else {
+                        dial.playFilm(current.channel, fromStart)
+                        surface = TvSurface.Player
+                    }
                 },
                 onContinueSeries = { progress ->
-                    dial.continueSeries(current.channel, progress)
-                    surface = TvSurface.Player
+                    if (dial.playsExternally(current.channel)) {
+                        dial.continueSeries(current.channel, progress, external = true)
+                    } else {
+                        dial.continueSeries(current.channel, progress)
+                        surface = TvSurface.Player
+                    }
                 },
                 onPlayEpisode = { episode ->
-                    dial.playEpisode(current.channel, episode, fromStart = false)
-                    surface = TvSurface.Player
+                    if (dial.playsExternally(current.channel)) {
+                        dial.playEpisode(current.channel, episode, fromStart = false, external = true)
+                    } else {
+                        dial.playEpisode(current.channel, episode, fromStart = false)
+                        surface = TvSurface.Player
+                    }
                 },
                 onSelectSeason = dial::selectSeason,
                 onToggleFavourite = { viewModel.toggleFavorite(current.channel) },

@@ -1,5 +1,6 @@
 package com.m3u.tv
 
+import android.content.Context
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -10,15 +11,20 @@ import com.m3u.data.database.model.isSeries
 import com.m3u.data.database.model.isVod
 import com.m3u.data.repository.channel.ChannelRepository
 import com.m3u.data.repository.playlist.PlaylistRepository
+import com.m3u.data.repository.programme.ProgrammeRepository
 import com.m3u.data.service.MediaCommand
 import com.m3u.data.service.PlayerManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -52,10 +58,12 @@ private data class TimedListing(val fetchedAt: Long, val programmes: List<GuideP
 
 @HiltViewModel
 class DialViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val store: DialSettingsStore,
     private val playerManager: PlayerManager,
     private val channelRepository: ChannelRepository,
     private val playlistRepository: PlaylistRepository,
+    private val programmeRepository: ProgrammeRepository,
 ) : ViewModel() {
 
     val preferences: StateFlow<DialPreferences> = store.preferences
@@ -75,6 +83,14 @@ class DialViewModel @Inject constructor(
     /** Full listings for the timeline grid, by channel id. Absent = not loaded yet. */
     private val _listings = MutableStateFlow<Map<Int, List<GuideProgramme>>>(emptyMap())
     val listings: StateFlow<Map<Int, List<GuideProgramme>>> = _listings.asStateFlow()
+
+    /** Streams to open in VLC or another app, collected by App. */
+    private val _externalPlayback = MutableSharedFlow<ExternalPlayback>(extraBufferCapacity = 1)
+    val externalPlayback: SharedFlow<ExternalPlayback> = _externalPlayback.asSharedFlow()
+
+    /** Short notices (string resources) shown as a toast. */
+    private val _messages = MutableSharedFlow<Int>(extraBufferCapacity = 4)
+    val messages: SharedFlow<Int> = _messages.asSharedFlow()
 
     private var detailsJob: Job? = null
     private var scheduleJob: Job? = null
@@ -190,16 +206,82 @@ class DialViewModel @Inject constructor(
         }
     }
 
-    fun playFilm(channel: Channel, fromStart: Boolean) {
+    /* ------------------------------------------------------------------ outside players */
+
+    /**
+     * Whether [channel] should open in VLC or another app rather than the built-in player.
+     * Channels that need DRM always stay in the built-in player. If VLC was chosen but isn't
+     * installed, this says so and falls back to the built-in player.
+     */
+    fun playsExternally(channel: Channel): Boolean {
+        val player = preferences.value.player
+        if (player == DialPlayer.BuiltIn || channel.licenseType != null) return false
+        // Media-server channels resolve their address at play time; only plain links travel.
+        if (!channel.url.startsWith("http://", ignoreCase = true) &&
+            !channel.url.startsWith("https://", ignoreCase = true)
+        ) {
+            return false
+        }
+        if (player == DialPlayer.Vlc && !ExternalPlayers.isInstalled(context, ExternalPlayers.VLC_PACKAGE)) {
+            _messages.tryEmit(R.string.dial_player_vlc_missing)
+            return false
+        }
+        return true
+    }
+
+    fun playLiveExternally(channel: Channel) {
+        viewModelScope.launch {
+            runCatching { channelRepository.reportPlayed(channel.id) }
+                .onFailure { if (it is CancellationException) throw it }
+            emitExternal(url = channel.url, title = channel.title, positionMs = 0L, resumeUrl = null)
+        }
+    }
+
+    /** Saves where the outside player stopped, or clears it if the video was watched to the end. */
+    fun onExternalResult(playback: ExternalPlayback, positionMs: Long, durationMs: Long) {
+        val url = playback.resumeUrl ?: return
+        viewModelScope.launch {
+            val finished = durationMs > 0L && positionMs >= durationMs - FINISHED_MARGIN_MS
+            val position = if (finished || positionMs < MIN_RESUME_MS) -1L else positionMs
+            runCatching { playerManager.saveCwPosition(url, position) }
+                .onFailure { if (it is CancellationException) throw it }
+            refreshAfterPlayback()
+        }
+    }
+
+    private fun emitExternal(url: String, title: String, positionMs: Long, resumeUrl: String?) {
+        val player = preferences.value.player.takeIf { it != DialPlayer.BuiltIn } ?: DialPlayer.Ask
+        _externalPlayback.tryEmit(
+            ExternalPlayback(
+                url = url,
+                title = title,
+                positionMs = positionMs,
+                resumeUrl = resumeUrl,
+                player = player,
+            )
+        )
+    }
+
+    fun playFilm(channel: Channel, fromStart: Boolean, external: Boolean = false) {
         store.recordOnDemand(channel.id)
         viewModelScope.launch {
             val resume = preferences.value.resumePlayback && !fromStart
+            if (external) {
+                val position = if (resume) savedPosition(channel.url) else 0L
+                emitExternal(channel.url, channel.title, position, resumeUrl = channel.url)
+                return@launch
+            }
             if (fromStart) playerManager.onResetPlayback(channel.url)
             playerManager.play(MediaCommand.Common(channel.id), applyContinueWatching = resume)
         }
     }
 
-    fun playEpisode(series: Channel, episode: SeriesEpisode, fromStart: Boolean) {
+    fun playEpisode(
+        series: Channel,
+        episode: SeriesEpisode,
+        fromStart: Boolean,
+        external: Boolean = false,
+    ) {
         store.recordOnDemand(series.id)
         store.saveSeriesProgress(
             series.id,
@@ -214,13 +296,20 @@ class DialViewModel @Inject constructor(
         viewModelScope.launch {
             val info = episode.toEpisodeInfo()
             val resume = preferences.value.resumePlayback && !fromStart
+            if (external) {
+                val url = series.copyXtreamEpisode(info).url
+                val position = if (resume) savedPosition(url) else 0L
+                val title = listOf(series.title, episode.title).filter { it.isNotBlank() }.joinToString(" · ")
+                emitExternal(url, title, position, resumeUrl = url)
+                return@launch
+            }
             if (fromStart) playerManager.onResetPlayback(series.copyXtreamEpisode(info).url)
             playerManager.play(MediaCommand.XtreamEpisode(series.id, info), applyContinueWatching = resume)
         }
     }
 
     /** "Continue S2 E5": the saved episode, resumed where it stopped. */
-    fun continueSeries(series: Channel, progress: SeriesProgress) {
+    fun continueSeries(series: Channel, progress: SeriesProgress, external: Boolean = false) {
         playEpisode(
             series = series,
             episode = SeriesEpisode(
@@ -234,6 +323,7 @@ class DialViewModel @Inject constructor(
                 image = null,
             ),
             fromStart = false,
+            external = external,
         )
     }
 
@@ -296,8 +386,12 @@ class DialViewModel @Inject constructor(
                 val listings = guideRequests.withPermit {
                     val credentials = credentialsFor(channel.playlistUrl)
                     val streamId = XtreamCatalog.idFromUrl(channel.url)
-                    if (credentials == null || streamId == null) emptyList()
-                    else XtreamCatalog.shortEpg(credentials, streamId)
+                    if (credentials == null || streamId == null) {
+                        // M3U playlists: the next few programmes from their XMLTV guide.
+                        xmltvProgrammes(channel, now, now + FUTURE_WINDOW_MS).orEmpty().take(3)
+                    } else {
+                        XtreamCatalog.shortEpg(credentials, streamId)
+                    }
                 }
                 val current = listings.filterNot { it.hasEndedBy(System.currentTimeMillis()) }
                 nowNextCache[channel.id] = TimedListing(System.currentTimeMillis(), current)
@@ -321,8 +415,12 @@ class DialViewModel @Inject constructor(
                 val programmes = guideRequests.withPermit {
                     val credentials = credentialsFor(channel.playlistUrl)
                     val streamId = XtreamCatalog.idFromUrl(channel.url)
-                    if (credentials == null || streamId == null) emptyList()
-                    else XtreamCatalog.fullEpg(credentials, streamId)
+                    if (credentials == null || streamId == null) {
+                        val start = System.currentTimeMillis()
+                        xmltvProgrammes(channel, start - GRID_PAST_MS, start + GRID_FUTURE_MS).orEmpty()
+                    } else {
+                        XtreamCatalog.fullEpg(credentials, streamId)
+                    }
                 }
                 val now = System.currentTimeMillis()
                 val trimmed = programmes.filter {
@@ -353,11 +451,17 @@ class DialViewModel @Inject constructor(
             delay(250)
             val credentials = credentialsFor(channel.playlistUrl)
             val streamId = XtreamCatalog.idFromUrl(channel.url)
+            val now = System.currentTimeMillis()
             if (credentials == null || streamId == null) {
-                _schedule.value = GuideSchedule(channel.id, loading = false, supported = false)
+                // M3U playlists: their XMLTV guide, if one is attached.
+                val programmes = xmltvProgrammes(channel, now, now + FUTURE_WINDOW_MS)
+                _schedule.value = if (programmes == null) {
+                    GuideSchedule(channel.id, loading = false, supported = false)
+                } else {
+                    GuideSchedule(channel.id, loading = false, programmes = programmes)
+                }
                 return@launch
             }
-            val now = System.currentTimeMillis()
             val programmes = XtreamCatalog.fullEpg(credentials, streamId)
                 .filter { it.endMillis > now - ARCHIVE_WINDOW_MS && it.startMillis < now + FUTURE_WINDOW_MS }
                 // Past programmes are only useful if they can be replayed.
@@ -366,16 +470,46 @@ class DialViewModel @Inject constructor(
         }
     }
 
-    fun playCatchUp(channel: Channel, programme: GuideProgramme) {
+    fun playCatchUp(channel: Channel, programme: GuideProgramme, external: Boolean = false) {
         viewModelScope.launch {
             val credentials = credentialsFor(channel.playlistUrl) ?: return@launch
             val streamId = XtreamCatalog.idFromUrl(channel.url) ?: return@launch
             val url = XtreamCatalog.timeshiftUrl(credentials, streamId, programme) ?: return@launch
+            if (external) {
+                emitExternal(url, programme.title, positionMs = 0L, resumeUrl = null)
+                return@launch
+            }
             playerManager.play(
                 MediaCommand.Url(channelId = channel.id, url = url, title = programme.title),
                 applyContinueWatching = false,
             )
         }
+    }
+
+    /**
+     * Programmes for an M3U channel from its playlist's XMLTV guide, matched on tvg-id. Null when
+     * the channel has no tvg-id or the playlist has no guide attached.
+     */
+    private suspend fun xmltvProgrammes(channel: Channel, from: Long, to: Long): List<GuideProgramme>? {
+        val relationId = channel.relationId?.takeIf { it.isNotBlank() } ?: return null
+        val playlist = playlistRepository.get(channel.playlistUrl) ?: return null
+        if (playlist.epgUrls.isEmpty()) return null
+        return runCatching {
+            programmeRepository.getProgrammesInRange(channel.playlistUrl, relationId, from, to)
+        }
+            .onFailure { if (it is CancellationException) throw it }
+            .getOrDefault(emptyList())
+            .filter { it.end > it.start }
+            .map { programme ->
+                GuideProgramme(
+                    title = programme.title,
+                    description = programme.description,
+                    startMillis = programme.start,
+                    endMillis = programme.end,
+                    serverStart = null,
+                    hasArchive = false,
+                )
+            }
     }
 
     private suspend fun credentialsFor(playlistUrl: String): XtreamCredentials? {
@@ -387,6 +521,7 @@ class DialViewModel @Inject constructor(
 
     private companion object {
         const val MIN_RESUME_MS = 30_000L
+        const val FINISHED_MARGIN_MS = 3 * 60_000L
         const val NOW_NEXT_TTL_MS = 10 * 60_000L
         const val ARCHIVE_WINDOW_MS = 7 * 24 * 60 * 60_000L
         const val FUTURE_WINDOW_MS = 24 * 60 * 60_000L

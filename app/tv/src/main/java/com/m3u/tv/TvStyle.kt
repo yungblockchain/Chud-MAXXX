@@ -8,6 +8,7 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LiveTv
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -67,6 +68,7 @@ enum class TvDestination(
     Favorites(Icons.Rounded.Favorite),
     Markets(Icons.AutoMirrored.Rounded.TrendingUp),
     Games(Icons.Rounded.SportsEsports),
+    Claude(Icons.Rounded.AutoAwesome),
     Account(Icons.Rounded.AccountCircle),
     Status(Icons.Rounded.Settings)
 }
