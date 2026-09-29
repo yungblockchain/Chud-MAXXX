@@ -120,9 +120,11 @@ fun CatalogScreen(
     val selected = state.selectedPlaylist?.takeIf { playlist ->
         playlist.catalogKind == kind && sources.any { it.url == playlist.url }
     }
-    // The shared selection may belong to another tab (or the guide): switch to this tab's source.
-    LaunchedEffect(kind, selected == null, sources.size) {
-        if (selected == null && sources.isNotEmpty()) onOpenCatalog(kind)
+    // The shared selection may belong to another tab (or the guide): switch to this tab's source,
+    // unless this tab is the one fading out.
+    val active = LocalTvTabActive.current
+    LaunchedEffect(kind, selected == null, sources.size, active) {
+        if (active && selected == null && sources.isNotEmpty()) onOpenCatalog(kind)
     }
     if (sources.isEmpty()) {
         EmptyCatalog(kind = kind, onAddSource = onAddSource)
@@ -147,7 +149,8 @@ fun CatalogScreen(
     val gridState = rememberLazyGridState()
     var screenHasFocus by remember { mutableStateOf(false) }
     var initialFocusDone by remember { mutableStateOf(false) }
-    var enterItems by remember { mutableStateOf(false) }
+    // The category OK was pressed on: focus goes into its grid once that category has loaded.
+    var enterTarget by remember { mutableStateOf<CategoryPick?>(null) }
     var preview by remember { mutableStateOf<CategoryPick?>(null) }
 
     // Moving through the list: show the category the remote rests on.
@@ -174,10 +177,12 @@ fun CatalogScreen(
         withFrameNanos { }
         runCatching { selectedCategoryFocus.requestFocus() }
     }
-    // OK on a category: into its first item once it has loaded.
-    LaunchedEffect(enterItems, loading, channels) {
-        if (!enterItems || loading || channels.isEmpty()) return@LaunchedEffect
-        enterItems = false
+    // OK on a category: into its first item once it has loaded (nothing, if it's empty).
+    LaunchedEffect(enterTarget, loading, channels, state.selectedCategory) {
+        val target = enterTarget ?: return@LaunchedEffect
+        if (loading || state.selectedCategory != target.name) return@LaunchedEffect
+        enterTarget = null
+        if (channels.isEmpty()) return@LaunchedEffect
         gridState.scrollToItem(0)
         withFrameNanos { }
         runCatching { firstItemFocus.requestFocus() }
@@ -256,11 +261,15 @@ fun CatalogScreen(
                 selectedCategory = state.selectedCategory,
                 listState = categoryListState,
                 selectedFocus = selectedCategoryFocus,
-                onPreview = { pick -> preview = pick },
+                onPreview = { pick ->
+                    preview = pick
+                    // Moving on to another category cancels a pending jump into the grid.
+                    if (enterTarget != null && enterTarget != pick) enterTarget = null
+                },
                 onOpen = { pick ->
                     preview = null
                     onSelectCategory(pick.name)
-                    enterItems = true
+                    enterTarget = pick
                 },
                 modifier = Modifier
                     .width(CATEGORY_LIST_WIDTH_DP.dp)
@@ -417,7 +426,6 @@ private fun CatalogGrid(
         contentPadding = PaddingValues(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 48.dp),
         modifier = Modifier
             .fillMaxSize()
-            .focusRestorer()
             .focusGroup()
     ) {
         itemsIndexed(

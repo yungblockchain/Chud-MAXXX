@@ -87,10 +87,13 @@ jobs:
             exit 1
           fi
           # A short real clip for films and episodes, so playing one is tested too.
-          if command -v ffmpeg >/dev/null; then
-            ffmpeg -loglevel error -f lavfi -i testsrc2=size=1280x720:rate=25 -f lavfi -i sine=frequency=440 \
-              -t 30 -c:v libx264 -pix_fmt yuv420p -profile:v main -c:a aac -movflags +faststart -shortest \
-              "$PWD/sample-film.mp4" && export MOCK_SAMPLE_VIDEO="$PWD/sample-film.mp4"
+          # Video only: the emulator runs without sound, so an audio track could fail on its own.
+          command -v ffmpeg >/dev/null || sudo apt-get install -y -qq ffmpeg >/dev/null 2>&1 || true
+          if command -v ffmpeg >/dev/null && ffmpeg -loglevel error -f lavfi -i testsrc2=size=1280x720:rate=25 \
+              -t 30 -an -c:v libx264 -pix_fmt yuv420p -profile:v main -movflags +faststart "$PWD/sample-film.mp4"; then
+            export MOCK_SAMPLE_VIDEO="$PWD/sample-film.mp4"
+          else
+            echo "::warning title=No test film::ffmpeg is missing, so films serve a placeholder and film playback isn't tested."
           fi
           nohup testing/mock-server/build/install/mock-server/bin/mock-server --host 0.0.0.0 --port 8080 \
             > mock-server.log 2>&1 &

@@ -206,99 +206,103 @@ fun TvBrowsePane(
             label = "tv-destination",
             modifier = Modifier.fillMaxSize(),
         ) { shown ->
-            when (shown) {
-                TvDestination.Home -> HomeScreen(
-                    state = state,
-                    onOpenLibrary = onOpenLibrary,
-                    onPlay = onPlay,
-                    onPlayRecent = onPlayRecent,
-                    continueWatching = continueWatching,
-                    trending = trending,
-                    onOpenTrending = onOpenTrending,
-                    onShowCatalog = onShowCatalog,
-                )
+            // Each tab remembers where focus was (Right from the menu goes back there), and only
+            // the tab being opened, not the one fading out, may change the shared selection.
+            TvTab(active = shown == destination) {
+                when (shown) {
+                    TvDestination.Home -> HomeScreen(
+                        state = state,
+                        onOpenLibrary = onOpenLibrary,
+                        onPlay = onPlay,
+                        onPlayRecent = onPlayRecent,
+                        continueWatching = continueWatching,
+                        trending = trending,
+                        onOpenTrending = onOpenTrending,
+                        onShowCatalog = onShowCatalog,
+                    )
 
-                TvDestination.Search -> SearchScreen(
-                    state = state,
-                    onSearch = onSearch,
-                    onPlay = onPlay,
-                )
+                    TvDestination.Search -> SearchScreen(
+                        state = state,
+                        onSearch = onSearch,
+                        onPlay = onPlay,
+                    )
 
-                TvDestination.Live, TvDestination.Films, TvDestination.Series -> CatalogScreen(
-                    kind = when (shown) {
-                        TvDestination.Films -> CatalogKind.Films
-                        TvDestination.Series -> CatalogKind.Series
-                        else -> CatalogKind.Live
-                    },
-                    state = state,
-                    onOpenCatalog = onOpenCatalog,
-                    onSelectPlaylist = onPlaylist,
-                    onSelectCategory = onSelectCategory,
-                    onRefresh = onRefresh,
-                    onPlay = onPlay,
-                    onAddSource = onAddSource,
-                )
+                    TvDestination.Live, TvDestination.Films, TvDestination.Series -> CatalogScreen(
+                        kind = when (shown) {
+                            TvDestination.Films -> CatalogKind.Films
+                            TvDestination.Series -> CatalogKind.Series
+                            else -> CatalogKind.Live
+                        },
+                        state = state,
+                        onOpenCatalog = onOpenCatalog,
+                        onSelectPlaylist = onPlaylist,
+                        onSelectCategory = onSelectCategory,
+                        onRefresh = onRefresh,
+                        onPlay = onPlay,
+                        onAddSource = onAddSource,
+                    )
 
-                TvDestination.Favorites -> favouritesContent()
+                    TvDestination.Favorites -> favouritesContent()
 
-                TvDestination.MyLibrary -> myLibraryContent()
+                    TvDestination.MyLibrary -> myLibraryContent()
 
-                TvDestination.Guide -> guideContent()
+                    TvDestination.Guide -> guideContent()
 
-                TvDestination.Markets -> MarketsScreen()
+                    TvDestination.Markets -> MarketsScreen()
 
-                TvDestination.Games -> GamesScreen()
+                    TvDestination.Games -> GamesScreen()
 
-                TvDestination.Claude -> claudeContent()
+                    TvDestination.Claude -> claudeContent()
 
-                TvDestination.Account -> XtreamAccountScreen()
+                    TvDestination.Account -> XtreamAccountScreen()
 
-                TvDestination.Status -> DialSettingsPane(
-                    tabs = listOf(
-                        SettingsTab(
-                            label = stringResource(R.string.dial_settings_tab_dial),
-                            icon = Icons.Rounded.Tune,
-                            content = dialSettingsContent,
+                    TvDestination.Status -> DialSettingsPane(
+                        tabs = listOf(
+                            SettingsTab(
+                                label = stringResource(R.string.dial_settings_tab_dial),
+                                icon = Icons.Rounded.Tune,
+                                content = dialSettingsContent,
+                            ),
+                            SettingsTab(
+                                label = stringResource(R.string.dial_settings_tab_playback),
+                                icon = Icons.Rounded.PlayCircle,
+                                content = playbackSettingsContent,
+                            ),
+                            SettingsTab(
+                                label = stringResource(R.string.dial_settings_tab_services),
+                                icon = Icons.Rounded.Key,
+                                content = servicesSettingsContent,
+                            ),
+                            SettingsTab(
+                                label = stringResource(R.string.dial_settings_tab_sources),
+                                icon = Icons.Rounded.Extension,
+                                content = {
+                            StatusScreen(
+                                state = state,
+                                onExternalExtensionsEnabled = onExternalExtensionsEnabled,
+                                onEnableExtension = onEnableExtension,
+                                onReauthorizeExtension = onReauthorizeExtension,
+                                onDisableExtension = onDisableExtension,
+                                onRevokeExtension = onRevokeExtension,
+                                onClearExtensionData = onClearExtensionData,
+                                onExportExtensionDiagnostics = onExportExtensionDiagnostics,
+                                onOpenExtensionSettings = onOpenExtensionSettings,
+                                onCloseExtensionSettings = onCloseExtensionSettings,
+                                onUpdateExtensionSetting = onUpdateExtensionSetting,
+                                onRefreshProviders = onRefreshProviders,
+                                onOpenProviderSubscription = onOpenProviderSubscription,
+                                onReauthenticateProvider = onReauthenticateProvider,
+                                onCloseProviderSubscription = onCloseProviderSubscription,
+                                onUpdateProviderTitle = onUpdateProviderTitle,
+                                onSelectProviderKind = onSelectProviderKind,
+                                onUpdateProviderSetting = onUpdateProviderSetting,
+                                onSubmitProviderSubscription = onSubmitProviderSubscription,
+                            )
+                                },
+                            ),
                         ),
-                        SettingsTab(
-                            label = stringResource(R.string.dial_settings_tab_playback),
-                            icon = Icons.Rounded.PlayCircle,
-                            content = playbackSettingsContent,
-                        ),
-                        SettingsTab(
-                            label = stringResource(R.string.dial_settings_tab_services),
-                            icon = Icons.Rounded.Key,
-                            content = servicesSettingsContent,
-                        ),
-                        SettingsTab(
-                            label = stringResource(R.string.dial_settings_tab_sources),
-                            icon = Icons.Rounded.Extension,
-                            content = {
-                        StatusScreen(
-                            state = state,
-                            onExternalExtensionsEnabled = onExternalExtensionsEnabled,
-                            onEnableExtension = onEnableExtension,
-                            onReauthorizeExtension = onReauthorizeExtension,
-                            onDisableExtension = onDisableExtension,
-                            onRevokeExtension = onRevokeExtension,
-                            onClearExtensionData = onClearExtensionData,
-                            onExportExtensionDiagnostics = onExportExtensionDiagnostics,
-                            onOpenExtensionSettings = onOpenExtensionSettings,
-                            onCloseExtensionSettings = onCloseExtensionSettings,
-                            onUpdateExtensionSetting = onUpdateExtensionSetting,
-                            onRefreshProviders = onRefreshProviders,
-                            onOpenProviderSubscription = onOpenProviderSubscription,
-                            onReauthenticateProvider = onReauthenticateProvider,
-                            onCloseProviderSubscription = onCloseProviderSubscription,
-                            onUpdateProviderTitle = onUpdateProviderTitle,
-                            onSelectProviderKind = onSelectProviderKind,
-                            onUpdateProviderSetting = onUpdateProviderSetting,
-                            onSubmitProviderSubscription = onSubmitProviderSubscription,
-                        )
-                            },
-                        ),
-                    ),
-                )
+                    )
+                }
             }
         }
     }

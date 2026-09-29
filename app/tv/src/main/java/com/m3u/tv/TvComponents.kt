@@ -70,6 +70,7 @@ import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -207,6 +208,8 @@ fun TvNavigationRail(
         label = "tv-rail-width",
     )
     val requesters = remember { TvDestination.entries.associateWith { FocusRequester() } }
+    // Which entry has focus, for the key handler (a plain holder: nothing redraws for it).
+    val focusedEntry = remember { arrayOfNulls<TvDestination>(1) }
     Box(
         modifier = modifier
             .fillMaxHeight()
@@ -250,6 +253,15 @@ fun TvNavigationRail(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(top = 10.dp, bottom = 16.dp)
+                    // Up from the first entry and Down from the last stay in the menu (rather
+                    // than jumping into the screen behind it).
+                    .onPreviewKeyEvent { event ->
+                        event.type == KeyEventType.KeyDown && when (event.key) {
+                            Key.DirectionUp -> focusedEntry[0] == TvDestination.entries.first()
+                            Key.DirectionDown -> focusedEntry[0] == TvDestination.entries.last()
+                            else -> false
+                        }
+                    }
                     .focusRestorer(requesters.getValue(selected))
                     .focusGroup()
             ) {
@@ -266,6 +278,7 @@ fun TvNavigationRail(
                         destination = destination,
                         selected = destination == selected,
                         focusRequester = requesters.getValue(destination),
+                        onFocus = { focusedEntry[0] = destination },
                         onClick = { onSelect(destination) }
                     )
                 }
@@ -279,11 +292,13 @@ private fun RailItem(
     destination: TvDestination,
     selected: Boolean,
     focusRequester: FocusRequester,
+    onFocus: () -> Unit,
     onClick: () -> Unit
 ) {
     val label = destination.label()
     FocusFrame(
         onClick = onClick,
+        onFocus = onFocus,
         focusRequester = focusRequester,
         selected = selected,
         selectionState = selected,
@@ -363,6 +378,28 @@ private val RailScrollSpec = object : BringIntoViewSpec {
             offset >= 0f && trailing <= containerSize -> 0f
             offset < 0f -> offset
             else -> trailing - containerSize
+        }
+    }
+}
+
+/**
+ * False for a tab on its way out (it fades while the next one comes in). Screens that switch the
+ * shared playlist selection only do so while their tab is the one being shown, or two tabs
+ * would keep switching it back and forth for the length of the fade.
+ */
+val LocalTvTabActive = compositionLocalOf { true }
+
+/** One tab of the browse pane: remembers where focus was inside it. */
+@Composable
+fun TvTab(active: Boolean, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalTvTabActive provides active) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .focusRestorer()
+                .focusGroup()
+        ) {
+            content()
         }
     }
 }

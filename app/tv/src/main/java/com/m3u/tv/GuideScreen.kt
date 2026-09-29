@@ -78,8 +78,10 @@ fun GuideScreen(
     }
     val selected = state.selectedPlaylist?.takeIf { playlist -> livePlaylists.any { it.url == playlist.url } }
 
-    LaunchedEffect(livePlaylists, selected) {
-        if (selected == null) livePlaylists.firstOrNull()?.let(onSelectPlaylist)
+    // Only while this tab is the one showing (not while it fades out behind the next tab).
+    val active = LocalTvTabActive.current
+    LaunchedEffect(livePlaylists, selected, active) {
+        if (active && selected == null) livePlaylists.firstOrNull()?.let(onSelectPlaylist)
     }
 
     if (livePlaylists.isEmpty()) {

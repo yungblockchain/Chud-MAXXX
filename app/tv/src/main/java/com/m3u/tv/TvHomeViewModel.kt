@@ -40,6 +40,7 @@ import com.m3u.data.service.PlayerManager
 import com.m3u.extension.api.ExtensionId
 import com.m3u.extension.api.subscription.SubscriptionProviderDescriptor
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.Collections
 import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -135,6 +136,14 @@ class TvHomeViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(TvUiState())
     val state: StateFlow<TvUiState> = _state.asStateFlow()
+
+    // Where each tab (Live TV, Films, Series) was left: its source, and each source's category.
+    // Written from the main thread and from the loader's IO thread, hence synchronized (and a
+    // HashMap underneath, which can hold a null "All").
+    private val lastPlaylistByKind: MutableMap<CatalogKind, String> =
+        Collections.synchronizedMap(HashMap())
+    private val lastCategoryByUrl: MutableMap<String, String?> =
+        Collections.synchronizedMap(HashMap())
     private val _extensionDiagnostics = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val extensionDiagnostics = _extensionDiagnostics.asSharedFlow()
 
@@ -216,10 +225,6 @@ class TvHomeViewModel @Inject constructor(
         observeProviderAccounts()
         refreshSubscriptionProviders()
     }
-
-    // Where each tab (Live TV, Films, Series) was left: its source, and each source's category.
-    private val lastPlaylistByKind = mutableMapOf<CatalogKind, String>()
-    private val lastCategoryByUrl = mutableMapOf<String, String?>()
 
     fun selectPlaylist(playlist: Playlist) {
         if (_state.value.selectedPlaylist?.url == playlist.url) return

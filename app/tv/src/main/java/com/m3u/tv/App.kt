@@ -51,7 +51,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.platform.LocalConfiguration
@@ -563,11 +562,9 @@ fun App(
                     .onFocusChanged { browseHasFocus = it.hasFocus }
             ) {
                 TvBrowsePane(
-                    // Right from the menu goes back to where focus was on the screen.
                     modifier = Modifier
                         .padding(start = RAIL_COLLAPSED_WIDTH)
                         .focusRequester(contentFocus)
-                        .focusRestorer()
                         .focusGroup(),
                     destination = destination,
                     state = state,
