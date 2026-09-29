@@ -8,6 +8,13 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /* -------------------------------------------------------------------------------------------------
  * Dial settings, modelled on TiviMate's player/startup options. Stored in plain SharedPreferences
@@ -58,6 +65,36 @@ data class DialPreferences(
     }
 }
 
+/** A named list of favourite channels ("Sports", "Kids"), in the order they were added. */
+@Immutable
+data class FavouriteGroup(
+    val id: String,
+    val name: String,
+    val channelIds: List<Int>,
+)
+
+/** How one playlist's categories are arranged: moved ones first, hidden ones left out. */
+@Immutable
+data class CategoryLayout(
+    val order: List<String> = emptyList(),
+    val hidden: Set<String> = emptySet(),
+) {
+    /** [names] in this layout's order (unmoved ones keep the provider's order), minus hidden. */
+    fun <T> arrange(items: List<T>, name: (T) -> String): List<T> {
+        val position = order.withIndex().associate { (index, value) -> value to index }
+        return items
+            .filterNot { name(it) in hidden }
+            .withIndex()
+            .sortedWith(
+                compareBy(
+                    { position[name(it.value)] ?: Int.MAX_VALUE },
+                    { it.index },
+                )
+            )
+            .map { it.value }
+    }
+}
+
 /** The last episode opened for a series, so "Continue S2 E5" can pick up from there. */
 @Immutable
 data class SeriesProgress(
@@ -95,6 +132,132 @@ class DialSettingsStore @Inject constructor(
         _watchlist.value = next
         prefs.edit().putString(KEY_WATCHLIST, next.joinToString("\n")).apply()
     }
+
+    private val _favouriteGroups = MutableStateFlow(readGroups())
+
+    /** Favourite groups, in the order they're shown. */
+    val favouriteGroups: StateFlow<List<FavouriteGroup>> = _favouriteGroups.asStateFlow()
+
+    fun createGroup(name: String, firstChannelId: Int? = null): FavouriteGroup {
+        val group = FavouriteGroup(
+            id = System.currentTimeMillis().toString(36),
+            name = name.trim().take(MAX_GROUP_NAME),
+            channelIds = listOfNotNull(firstChannelId),
+        )
+        saveGroups(_favouriteGroups.value + group)
+        return group
+    }
+
+    fun toggleInGroup(groupId: String, channelId: Int) = saveGroups(
+        _favouriteGroups.value.map { group ->
+            if (group.id != groupId) group
+            else if (channelId in group.channelIds) group.copy(channelIds = group.channelIds - channelId)
+            else group.copy(channelIds = group.channelIds + channelId)
+        }
+    )
+
+    fun moveInGroup(groupId: String, channelId: Int, delta: Int) = saveGroups(
+        _favouriteGroups.value.map { group ->
+            if (group.id != groupId) return@map group
+            val ids = group.channelIds.toMutableList()
+            val from = ids.indexOf(channelId)
+            if (from < 0) return@map group
+            val to = (from + delta).coerceIn(0, ids.lastIndex)
+            ids.add(to, ids.removeAt(from))
+            group.copy(channelIds = ids)
+        }
+    )
+
+    fun moveGroup(groupId: String, delta: Int) {
+        val groups = _favouriteGroups.value.toMutableList()
+        val from = groups.indexOfFirst { it.id == groupId }
+        if (from < 0) return
+        val to = (from + delta).coerceIn(0, groups.lastIndex)
+        groups.add(to, groups.removeAt(from))
+        saveGroups(groups)
+    }
+
+    fun deleteGroup(groupId: String) = saveGroups(_favouriteGroups.value.filterNot { it.id == groupId })
+
+    private fun saveGroups(groups: List<FavouriteGroup>) {
+        _favouriteGroups.value = groups
+        val json = JsonArray(groups.map { group ->
+            JsonObject(
+                mapOf(
+                    "id" to JsonPrimitive(group.id),
+                    "name" to JsonPrimitive(group.name),
+                    "channels" to JsonArray(group.channelIds.map(::JsonPrimitive)),
+                )
+            )
+        })
+        prefs.edit().putString(KEY_FAVOURITE_GROUPS, json.toString()).apply()
+    }
+
+    private fun readGroups(): List<FavouriteGroup> = runCatching {
+        val raw = prefs.getString(KEY_FAVOURITE_GROUPS, null) ?: return emptyList()
+        Json.parseToJsonElement(raw).jsonArray.mapNotNull { element ->
+            val item = element.jsonObject
+            FavouriteGroup(
+                id = item["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                name = item["name"]?.jsonPrimitive?.content.orEmpty(),
+                channelIds = item["channels"]?.jsonArray
+                    ?.mapNotNull { it.jsonPrimitive.content.toIntOrNull() }
+                    .orEmpty(),
+            )
+        }
+    }.getOrDefault(emptyList())
+
+    private val _categoryLayouts = MutableStateFlow(readCategoryLayouts())
+
+    /** Category order and hidden categories, by playlist URL. */
+    val categoryLayouts: StateFlow<Map<String, CategoryLayout>> = _categoryLayouts.asStateFlow()
+
+    /** Moves [name] by [delta] places among [shown] (the categories as currently displayed). */
+    fun moveCategory(playlistUrl: String, shown: List<String>, name: String, delta: Int) {
+        val order = shown.toMutableList()
+        val from = order.indexOf(name)
+        if (from < 0) return
+        val to = (from + delta).coerceIn(0, order.lastIndex)
+        order.add(to, order.removeAt(from))
+        updateLayout(playlistUrl) { it.copy(order = order) }
+    }
+
+    fun moveCategoryToFront(playlistUrl: String, shown: List<String>, name: String) =
+        moveCategory(playlistUrl, shown, name, -shown.size)
+
+    fun hideCategory(playlistUrl: String, name: String) =
+        updateLayout(playlistUrl) { it.copy(hidden = it.hidden + name) }
+
+    fun showAllCategories(playlistUrl: String) =
+        updateLayout(playlistUrl) { it.copy(hidden = emptySet()) }
+
+    fun resetCategories(playlistUrl: String) = updateLayout(playlistUrl) { CategoryLayout() }
+
+    private fun updateLayout(playlistUrl: String, transform: (CategoryLayout) -> CategoryLayout) {
+        val next = _categoryLayouts.value.toMutableMap()
+        next[playlistUrl] = transform(next[playlistUrl] ?: CategoryLayout())
+        _categoryLayouts.value = next
+        val json = JsonObject(next.mapValues { (_, layout) ->
+            JsonObject(
+                mapOf(
+                    "order" to JsonArray(layout.order.map(::JsonPrimitive)),
+                    "hidden" to JsonArray(layout.hidden.map(::JsonPrimitive)),
+                )
+            )
+        })
+        prefs.edit().putString(KEY_CATEGORY_LAYOUTS, json.toString()).apply()
+    }
+
+    private fun readCategoryLayouts(): Map<String, CategoryLayout> = runCatching {
+        val raw = prefs.getString(KEY_CATEGORY_LAYOUTS, null) ?: return emptyMap()
+        Json.parseToJsonElement(raw).jsonObject.mapValues { (_, value) ->
+            val item = value.jsonObject
+            CategoryLayout(
+                order = item["order"]?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty(),
+                hidden = item["hidden"]?.jsonArray?.map { it.jsonPrimitive.content }?.toSet().orEmpty(),
+            )
+        }
+    }.getOrDefault(emptyMap())
 
     /** Films and series opened most recently first, as channel ids. */
     val history: StateFlow<List<Int>> = _history.asStateFlow()
@@ -237,6 +400,9 @@ class DialSettingsStore @Inject constructor(
         const val KEY_FAST_MENUS = "fast_menus"
         const val KEY_LAST_CHANNEL = "last_channel"
         const val KEY_HISTORY = "on_demand_history"
+        const val KEY_FAVOURITE_GROUPS = "favourite_groups"
+        const val KEY_CATEGORY_LAYOUTS = "category_layouts"
+        const val MAX_GROUP_NAME = 40
         const val KEY_WATCHLIST = "markets_watchlist"
         const val KEY_HIGH_SCORE_PREFIX = "high_score_"
         const val KEY_SERIES_PREFIX = "series_progress_"

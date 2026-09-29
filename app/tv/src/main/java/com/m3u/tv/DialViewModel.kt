@@ -114,11 +114,43 @@ class DialViewModel @Inject constructor(
     private val listingInFlight = mutableSetOf<Int>()
     private val listingOrder = ArrayDeque<Int>()
 
+    val favouriteGroups: StateFlow<List<FavouriteGroup>> = store.favouriteGroups
+
+    /** Each favourite group's channels, in the group's order (missing ones left out). */
+    private val _groupChannels = MutableStateFlow<Map<String, List<Channel>>>(emptyMap())
+    val groupChannels: StateFlow<Map<String, List<Channel>>> = _groupChannels.asStateFlow()
+
     init {
         viewModelScope.launch {
             store.history.collect { refreshContinueWatching() }
         }
+        viewModelScope.launch {
+            store.favouriteGroups.collect { groups ->
+                val cache = mutableMapOf<Int, Channel?>()
+                _groupChannels.value = groups.associate { group ->
+                    group.id to group.channelIds.mapNotNull { id ->
+                        cache.getOrPut(id) { runCatching { channelRepository.get(id) }.getOrNull() }
+                    }
+                }
+            }
+        }
     }
+
+    /* ------------------------------------------------------------------ favourite groups */
+
+    fun createGroup(name: String, channelId: Int?) {
+        if (name.isBlank()) return
+        store.createGroup(name, channelId)
+    }
+
+    fun toggleInGroup(groupId: String, channelId: Int) = store.toggleInGroup(groupId, channelId)
+
+    fun moveInGroup(groupId: String, channelId: Int, delta: Int) =
+        store.moveInGroup(groupId, channelId, delta)
+
+    fun moveGroup(groupId: String, delta: Int) = store.moveGroup(groupId, delta)
+
+    fun deleteGroup(groupId: String) = store.deleteGroup(groupId)
 
     /* ------------------------------------------------------------------ settings */
 

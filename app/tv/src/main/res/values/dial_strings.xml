@@ -387,4 +387,53 @@
     <string name="dial_services_github_repo_hint">owner/name of your private repository</string>
     <string name="dial_services_github_token">GitHub token</string>
     <string name="dial_services_github_token_hint">Fine-grained token with Issues: read and write on that repository</string>
+
+    <!-- Navigation -->
+    <string name="dial_nav_browse">Browse</string>
+    <string name="dial_nav_my_library">My Library</string>
+
+    <!-- Home -->
+    <string name="dial_home_last_watched">Last watched</string>
+    <string name="dial_home_last_watched_hint">The last ten channels, films and episodes you played</string>
+
+    <!-- Favourites -->
+    <string name="dial_favourites_title">Favourites</string>
+    <string name="dial_favourites_subtitle">Hold OK on a channel to add it to a group of your own</string>
+    <string name="dial_favourites_all">All · %1$d</string>
+    <string name="dial_favourites_empty">No favourite channels yet. Hold OK on a channel and choose Add to favourites.</string>
+    <string name="dial_favourites_group_empty">This group is empty. Hold OK on a channel and choose Favourite groups.</string>
+
+    <!-- My Library -->
+    <string name="dial_my_library_subtitle">Films and series you saved, and what you\'re partway through</string>
+    <string name="dial_my_library_films">Saved films</string>
+    <string name="dial_my_library_series">Saved series</string>
+    <string name="dial_my_library_empty">Nothing saved yet. Hold OK on a film or series and choose Save to My Library.</string>
+
+    <!-- Hold-OK menu -->
+    <string name="dial_menu_play">Play</string>
+    <string name="dial_menu_open">Open</string>
+    <string name="dial_menu_play_from_start">Play from the start</string>
+    <string name="dial_menu_details">Details, cast and reviews</string>
+    <string name="dial_menu_favourite">Add to favourites</string>
+    <string name="dial_menu_unfavourite">Remove from favourites</string>
+    <string name="dial_menu_library_add">Save to My Library</string>
+    <string name="dial_menu_library_remove">Remove from My Library</string>
+    <string name="dial_menu_groups">Favourite groups</string>
+    <string name="dial_menu_new_group">New group…</string>
+    <string name="dial_menu_group_name">Group name</string>
+    <string name="dial_menu_group_name_hint">e.g. Sports, Kids, News</string>
+    <string name="dial_menu_create_group">Create group</string>
+    <string name="dial_menu_group_subtitle">Favourite group</string>
+    <string name="dial_menu_delete_group">Delete group</string>
+    <string name="dial_menu_play_externally">Play in another app</string>
+    <string name="dial_menu_ask_claude">Ask Claude about this</string>
+    <string name="dial_menu_ask_claude_prompt">Tell me about \"%1$s\" (from %2$s): what it is, why people like it, and similar things in my playlists.</string>
+    <string name="dial_menu_hide_channel">Hide channel</string>
+    <string name="dial_menu_category_subtitle">Category</string>
+    <string name="dial_menu_category_front">Move to the front</string>
+    <string name="dial_menu_category_earlier">Move earlier</string>
+    <string name="dial_menu_category_later">Move later</string>
+    <string name="dial_menu_category_hide">Hide this category</string>
+    <string name="dial_menu_category_show_all">Show hidden categories (%1$d)</string>
+    <string name="dial_menu_category_reset">Reset category order</string>
 </resources>

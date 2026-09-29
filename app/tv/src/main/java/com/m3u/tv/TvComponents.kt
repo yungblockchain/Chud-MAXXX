@@ -2,13 +2,16 @@ package com.m3u.tv
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -45,6 +48,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -86,6 +90,7 @@ import com.m3u.data.database.model.isVod
 import com.m3u.i18n.R.plurals
 import com.m3u.i18n.R.string
 import java.util.Locale
+import kotlin.math.abs
 
 @Composable
 fun TvBackdrop(channel: Channel?) {
@@ -198,19 +203,23 @@ fun TvNavigationRail(
                     )
                 )
         )
+        // Coming back to the rail from a screen lands on the open tab, not the nearest icon.
+        val requesters = remember { TvDestination.entries.associateWith { FocusRequester() } }
         Column(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
-            // Tabs are centred in the space between the logo and the pairing code, so they never
-            // overlap either; nine of them fit a 540dp-tall (1080p) screen.
+            // Tabs are centred in the space below the logo; ten of them fit a 540dp-tall
+            // (1080p) screen.
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 68.dp, bottom = 18.dp)
+                .padding(top = 68.dp, bottom = 12.dp)
+                .focusRestorer(requesters.getValue(selected))
         ) {
             TvDestination.entries.forEach { destination ->
                 RailItem(
                     destination = destination,
                     selected = destination == selected,
+                    focusRequester = requesters.getValue(destination),
                     onClick = { onSelect(destination) }
                 )
                 Spacer(Modifier.height(4.dp))
@@ -223,16 +232,18 @@ fun TvNavigationRail(
 private fun RailItem(
     destination: TvDestination,
     selected: Boolean,
+    focusRequester: FocusRequester,
     onClick: () -> Unit
 ) {
     FocusFrame(
         onClick = onClick,
+        focusRequester = focusRequester,
         selected = selected,
         selectionState = selected,
         semanticsLabel = destination.label(),
         shape = RoundedCornerShape(16.dp),
         semanticRole = Role.Tab,
-        modifier = Modifier.size(44.dp)
+        modifier = Modifier.size(40.dp)
     ) { focused ->
         Icon(
             imageVector = destination.icon,
@@ -248,9 +259,10 @@ private fun RailItem(
 @Composable
 private fun TvDestination.label(): String = when (this) {
     TvDestination.Home -> stringResource(string.tv_home_title)
-    TvDestination.Library -> stringResource(string.tv_library_title)
+    TvDestination.Library -> stringResource(R.string.dial_nav_browse)
     TvDestination.Guide -> stringResource(R.string.dial_nav_guide)
     TvDestination.Favorites -> stringResource(string.tv_favorites_title)
+    TvDestination.MyLibrary -> stringResource(R.string.dial_nav_my_library)
     TvDestination.Markets -> stringResource(R.string.dial_nav_markets)
     TvDestination.Games -> stringResource(R.string.dial_nav_games)
     TvDestination.Claude -> stringResource(R.string.dial_nav_claude)
@@ -264,9 +276,19 @@ private fun TvDestination.label(): String = when (this) {
  */
 val LocalTvFocusEnabled = compositionLocalOf { true }
 
+/**
+ * Opens the hold-OK menu for a channel, film or series; null where there's no menu. The focus
+ * requester is the card's, so focus goes back to it when the menu closes.
+ */
+val LocalChannelMenu = compositionLocalOf<((Channel, FocusRequester) -> Unit)?> { null }
+
+/** Opens the hold-OK menu for a category chip of the selected playlist. */
+val LocalCategoryMenu = compositionLocalOf<((String, FocusRequester) -> Unit)?> { null }
+
 /** Two opposite corners cut at 45 degrees, like a heads-up display panel. */
 val HudShape = CutCornerShape(topStart = 12.dp, bottomEnd = 12.dp)
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FocusFrame(
     onClick: () -> Unit,
@@ -286,6 +308,8 @@ fun FocusFrame(
     toggleState: ToggleableState? = null,
     onFocus: () -> Unit = {},
     onKey: (KeyEvent) -> Boolean = { false },
+    /** Holding OK: the item's menu. */
+    onLongClick: (() -> Unit)? = null,
     content: @Composable BoxScope.(focused: Boolean) -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -338,16 +362,30 @@ fun FocusFrame(
                         .onKeyEvent { event ->
                             when {
                                 onKey(event) -> true
-                                event.type == KeyEventType.KeyUp && event.key.isDpadConfirmKey() -> {
+                                // With a long-press action the clickable below tells a tap
+                                // from a hold, so it handles OK itself.
+                                onLongClick == null &&
+                                    event.type == KeyEventType.KeyUp &&
+                                    event.key.isDpadConfirmKey() -> {
                                     onClick()
                                     true
                                 }
                                 else -> false
                             }
                         }
-                        .clickable(
-                            role = null,
-                            onClick = onClick,
+                        .then(
+                            if (onLongClick != null) {
+                                Modifier.combinedClickable(
+                                    role = null,
+                                    onClick = onClick,
+                                    onLongClick = onLongClick,
+                                )
+                            } else {
+                                Modifier.clickable(
+                                    role = null,
+                                    onClick = onClick,
+                                )
+                            }
                         )
                         .focusable()
                 } else if (focusableWhenDisabled && focusAllowed) {
@@ -446,9 +484,11 @@ fun TvActionButton(
     semanticsLabel: String? = null,
     semanticsError: String? = null,
     supportingText: String? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
     FocusFrame(
         onClick = onClick,
+        onLongClick = onLongClick,
         selected = selected == true || checked == true,
         selectionState = selected.takeIf { checked == null },
         enabled = enabled,
@@ -564,10 +604,13 @@ fun ChannelCard(
     onFocused: () -> Unit = {},
     compact: Boolean = false
 ) {
+    val openMenu = LocalChannelMenu.current
+    val requester = focusRequester ?: remember { FocusRequester() }
     FocusFrame(
         onClick = onPlay,
+        onLongClick = openMenu?.let { menu -> { menu(channel, requester) } },
         modifier = modifier,
-        focusRequester = focusRequester,
+        focusRequester = requester,
         onFocus = onFocused,
         shape = RoundedCornerShape(12.dp)
     ) { focused ->
@@ -760,15 +803,31 @@ fun PosterArt(
     model: String?,
     modifier: Modifier = Modifier
 ) {
-    Box(
+    // Posters fill the frame; logos and wide pictures are shown whole, never cut off.
+    var shape by remember(model) { mutableStateOf(ArtShape.Unknown) }
+    BoxWithConstraints(
         contentAlignment = Alignment.Center,
         modifier = modifier.background(TvColors.SurfaceRaised)
     ) {
+        val frameRatio = if (maxHeight.value > 0f) maxWidth.value / maxHeight.value else 1f
         AsyncImage(
             model = model,
             contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
+            contentScale = if (shape == ArtShape.Logo) ContentScale.Fit else ContentScale.Crop,
+            onSuccess = { success ->
+                val drawable = success.result.drawable
+                val ratio = if (drawable.intrinsicHeight > 0) {
+                    drawable.intrinsicWidth.toFloat() / drawable.intrinsicHeight
+                } else 0f
+                shape = if (ratio > 0f && abs(ratio - frameRatio) > LOGO_RATIO_TOLERANCE * frameRatio) {
+                    ArtShape.Logo
+                } else {
+                    ArtShape.Poster
+                }
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .then(if (shape == ArtShape.Logo) Modifier.padding(12.dp) else Modifier)
         )
         if (model.isNullOrBlank()) {
             Icon(
@@ -780,6 +839,11 @@ fun PosterArt(
         }
     }
 }
+
+private enum class ArtShape { Unknown, Poster, Logo }
+
+/** A picture more than this far from the frame's shape is treated as a logo and shown whole. */
+private const val LOGO_RATIO_TOLERANCE = 0.35f
 
 @Composable
 fun InfoPill(

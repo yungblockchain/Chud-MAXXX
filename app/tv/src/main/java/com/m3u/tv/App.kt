@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -65,6 +66,7 @@ import com.m3u.data.database.model.isVod
 import com.m3u.data.tv.model.keyCode
 import com.m3u.i18n.R.string
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.yield
 
 /** Launch extra naming the tab to open first, e.g. `--es destination games` (see [tvDestinationFromExtra]). */
 const val EXTRA_DESTINATION = "destination"
@@ -107,6 +109,7 @@ fun App(
     initialDestination: TvDestination? = null,
     viewModel: TvHomeViewModel = hiltViewModel(),
     dial: DialViewModel = hiltViewModel(),
+    claude: ClaudeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val player by viewModel.player.collectAsStateWithLifecycle()
@@ -235,7 +238,50 @@ fun App(
         remember(playingId, nowPlaying) { dial.nextEpisode() }
     } else null
     LaunchedEffect(surface) {
-        if (surface == TvSurface.Browse) dial.refreshAfterPlayback()
+        if (surface == TvSurface.Browse) {
+            dial.refreshAfterPlayback()
+            viewModel.refreshRecentlyPlayed()
+        }
+    }
+
+    // Hold-OK menus.
+    val favouriteGroups by dial.favouriteGroups.collectAsStateWithLifecycle()
+    val groupChannels by dial.groupChannels.collectAsStateWithLifecycle()
+    var menuChannel by remember { mutableStateOf<Channel?>(null) }
+    var menuCategory by remember { mutableStateOf<String?>(null) }
+    var menuReturnFocus by remember { mutableStateOf<FocusRequester?>(null) }
+    val openChannelMenu = remember {
+        { channel: Channel, requester: FocusRequester ->
+            menuReturnFocus = requester
+            menuChannel = channel
+        }
+    }
+    val openCategoryMenu = remember {
+        { name: String, requester: FocusRequester ->
+            menuReturnFocus = requester
+            menuCategory = name
+        }
+    }
+    // Back on the card or chip the menu was opened from.
+    LaunchedEffect(menuChannel == null && menuCategory == null) {
+        val target = menuReturnFocus ?: return@LaunchedEffect
+        if (menuChannel != null || menuCategory != null) return@LaunchedEffect
+        yield()
+        runCatching { target.requestFocus() }
+        menuReturnFocus = null
+    }
+    fun kindOf(channel: Channel): MenuItemKind {
+        val playlist = state.playlists.firstOrNull { it.url == channel.playlistUrl }
+        return when {
+            playlist?.isSeries == true -> MenuItemKind.Series
+            playlist?.isVod == true -> MenuItemKind.Film
+            else -> MenuItemKind.Live
+        }
+    }
+    val askClaudePrompt = stringResource(R.string.dial_menu_ask_claude_prompt)
+    fun askClaudeAbout(channel: Channel) {
+        claude.send(askClaudePrompt.format(channel.title, channel.category))
+        destination = TvDestination.Claude
     }
 
     val backTarget = tvAppBackTarget(
@@ -321,8 +367,11 @@ fun App(
             .windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
         TvBackdrop(channel = currentChannel ?: state.heroChannel)
+        val browsing = surface == TvSurface.Browse && details == null && !showSplash
         CompositionLocalProvider(
-            LocalTvFocusEnabled provides (surface == TvSurface.Browse && details == null && !showSplash)
+            LocalTvFocusEnabled provides browsing,
+            LocalChannelMenu provides openChannelMenu.takeIf { browsing },
+            LocalCategoryMenu provides openCategoryMenu.takeIf { browsing },
         ) {
             Row(Modifier.fillMaxSize()) {
                 TvNavigationRail(
@@ -395,6 +444,23 @@ fun App(
                             },
                         )
                     },
+                    favouritesContent = {
+                        FavouritesScreen(
+                            state = state,
+                            groups = favouriteGroups,
+                            groupChannels = groupChannels,
+                            onPlay = openOrPlay,
+                            onMoveGroup = dial::moveGroup,
+                            onDeleteGroup = dial::deleteGroup,
+                        )
+                    },
+                    myLibraryContent = {
+                        MyLibraryScreen(
+                            state = state,
+                            continueWatching = continueWatching,
+                            onPlay = openOrPlay,
+                        )
+                    },
                     claudeContent = {
                         ClaudeScreen(onPlay = openOrPlay)
                     },
@@ -451,6 +517,72 @@ fun App(
                 onSelectSeason = dial::selectSeason,
                 onToggleFavourite = { viewModel.toggleFavorite(current.channel) },
                 onBack = dial::closeDetails,
+            )
+        }
+
+        menuChannel?.let { channel ->
+            val kind = kindOf(channel)
+            val playlist = state.playlists.firstOrNull { it.url == channel.playlistUrl }
+            val external = dial.preferences.value.player != DialPlayer.BuiltIn
+            ChannelMenu(
+                channel = channel,
+                kind = kind,
+                favourite = state.favorites.any { it.id == channel.id },
+                groups = favouriteGroups,
+                actions = ChannelMenuActions(
+                    play = {
+                        when (kind) {
+                            MenuItemKind.Film -> if (dial.playsExternally(channel)) {
+                                dial.playFilm(channel, fromStart = false, external = true)
+                            } else {
+                                dial.playFilm(channel, fromStart = false)
+                                surface = TvSurface.Player
+                            }
+                            else -> openOrPlay(channel)
+                        }
+                    },
+                    playFromStart = if (kind == MenuItemKind.Film) {
+                        {
+                            dial.playFilm(channel, fromStart = true)
+                            surface = TvSurface.Player
+                        }
+                    } else null,
+                    details = if (kind != MenuItemKind.Live) {
+                        { dial.openDetails(channel, playlist) }
+                    } else null,
+                    toggleFavourite = { viewModel.toggleFavorite(channel) },
+                    playExternally = when {
+                        !channel.url.startsWith("http", ignoreCase = true) || external -> null
+                        kind == MenuItemKind.Live -> { { dial.playLiveExternally(channel) } }
+                        kind == MenuItemKind.Film -> {
+                            { dial.playFilm(channel, fromStart = false, external = true) }
+                        }
+                        else -> null
+                    },
+                    hide = if (kind == MenuItemKind.Live) {
+                        { viewModel.hideChannel(channel) }
+                    } else null,
+                    askClaude = { askClaudeAbout(channel) },
+                    toggleGroup = { groupId -> dial.toggleInGroup(groupId, channel.id) },
+                    createGroup = { name -> dial.createGroup(name, channel.id) },
+                ),
+                onDismiss = { menuChannel = null },
+            )
+        }
+
+        menuCategory?.let { name ->
+            val index = state.categories.indexOfFirst { it.name == name }
+            CategoryMenu(
+                name = name,
+                index = index,
+                count = state.categories.size,
+                hiddenCount = state.hiddenCategoryCount,
+                onMoveToFront = { viewModel.moveCategoryToFront(name) },
+                onMove = { delta -> viewModel.moveCategory(name, delta) },
+                onHide = { viewModel.hideCategory(name) },
+                onShowAll = viewModel::showAllCategories,
+                onReset = viewModel::resetCategories,
+                onDismiss = { menuCategory = null },
             )
         }
 

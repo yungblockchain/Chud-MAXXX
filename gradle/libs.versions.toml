@@ -168,6 +168,7 @@ haze-materials = { module = "dev.chrisbanes.haze:haze-materials", version.ref = 
 backdrop = { module = "io.github.kyant0:backdrop", version.ref = "backdrop" }
 io-coil-kt = { group = "io.coil-kt", name = "coil", version.ref = "io-coil" }
 io-coil-kt-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "io-coil" }
+io-coil-kt-gif = { group = "io.coil-kt", name = "coil-gif", version.ref = "io-coil" }
 
 airbnb-lottie-compose = { group = "com.airbnb.android", name = "lottie-compose", version.ref = "lottie-compose" }
 
