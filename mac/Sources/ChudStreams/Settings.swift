@@ -839,7 +839,7 @@ private struct SettingsHDRPage: View {
             SettingsChoice(title: "Dolby Vision", hint: SettingsText.dolbyVision(store.value.dolbyVision),
                            selection: store.binding(\.dolbyVision), options: DolbyVisionMode.allCases,
                            label: { $0.label }, width: 300, stacked: true)
-            if store.value.renderer == .standard && store.value.dolbyVision == .auto {
+            if !store.value.renderer.usesMetal && store.value.dolbyVision == .auto {
                 rendererNote
             }
         }
@@ -1993,6 +1993,8 @@ private enum SettingsText {
 
     static func renderer(_ renderer: VideoRenderer) -> String {
         switch renderer {
+        case .auto:
+            return "Uses Metal for HDR and Dolby Vision when this Mac's screen (or a connected TV) can show HDR, and dependable OpenGL otherwise."
         case .standard:
             return "Dependable OpenGL output. Advanced adds HDR output and Dolby Vision profile 5."
         case .advanced:
