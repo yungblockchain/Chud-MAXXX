@@ -70,6 +70,10 @@ sign_in() {
     press $OK
     sleep 25
     shot 18-signed-in
+    # The account check and the channel import are separate steps; flag a failed import.
+    if adb logcat -d | grep -q "Worker result FAILURE .*SubscriptionWorker"; then
+        echo "::error title=Playlist import failed on API $API::Signed in to the test server, but loading its channels failed. See logcat-api$API.txt."
+    fi
 }
 
 adb install -r chud-streams.apk || { echo "::error::Install failed on API $API"; exit 0; }

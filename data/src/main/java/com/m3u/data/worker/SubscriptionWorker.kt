@@ -242,6 +242,10 @@ class SubscriptionWorker @AssistedInject constructor(
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
+        // Expedited work runs as a foreground service on Android 11 and lower, and WorkManager
+        // asks for this notification before doWork() has created the channel. Posting it to a
+        // channel that doesn't exist yet crashes the app on Android 11 (Fire OS 8).
+        createChannel()
         return ForegroundInfo(notificationId, createN10nBuilder().build())
     }
 

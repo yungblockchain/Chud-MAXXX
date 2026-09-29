@@ -141,11 +141,14 @@ interface ChannelDao {
         channelReference: String,
     ): Int
 
+    // No table alias on the DELETE target: Android 9 and 10 (Fire OS 7) ship SQLite 3.22, which
+    // rejects "DELETE FROM table AS alias" as a syntax error, and that made every playlist
+    // import fail there.
     @Query(
         """
-        DELETE FROM channel_metadata_bases AS base
-        WHERE base.playlist_url = :playlistUrl
-        AND base.channel_reference NOT IN (
+        DELETE FROM channel_metadata_bases
+        WHERE playlist_url = :playlistUrl
+        AND channel_reference NOT IN (
             SELECT streams.relation_id
             FROM streams
             WHERE streams.playlist_url = :playlistUrl
