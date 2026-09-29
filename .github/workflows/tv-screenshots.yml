@@ -76,4 +76,11 @@ jobs:
               --notes "Screenshots and logs from the Fire TV app running on Android TV emulators (API 28 = Fire OS 7, API 30 = Fire OS 8)." \
               --prerelease --latest=false || true
           sleep 5
+          # Replace this API level's files from the last run, so old screenshots and crash
+          # logs from an earlier APK don't linger next to the new ones.
+          api="${{ matrix.api-level }}"
+          gh release view screenshots --repo "$REPO" --json assets -q '.assets[].name' | \
+            grep -E "^api${api}-|-api${api}\.txt$" | \
+            while read -r name; do gh release delete-asset screenshots "$name" --repo "$REPO" -y || true; done
+          find out -type f -size 0 -delete
           gh release upload screenshots out/* --repo "$REPO" --clobber

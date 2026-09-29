@@ -17,6 +17,7 @@ import dagger.hilt.android.AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val initialDestination = tvDestinationFromExtra(intent?.getStringExtra(EXTRA_DESTINATION))
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT)
@@ -36,7 +37,7 @@ class MainActivity : ComponentActivity() {
                 )
             ) {
                 Box(Modifier.background(MaterialTheme.colorScheme.background)) {
-                    App()
+                    App(initialDestination = initialDestination)
                 }
             }
         }

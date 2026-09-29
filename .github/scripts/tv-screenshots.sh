@@ -1,8 +1,11 @@
 #!/bin/bash
 # Runs inside the Android TV emulator job (.github/workflows/tv-screenshots.yml).
-# Installs chud-streams.apk, walks through the main screens with remote-control key presses,
-# and saves screenshots plus the crash log into the output folder.
+# Installs chud-streams.apk, opens each main screen with remote-control key presses, and saves
+# screenshots plus the crash log into the output folder.
 #   usage: tv-screenshots.sh <output-dir> <api-level>
+#
+# Each tab is opened by relaunching the app with the "destination" launch extra
+# (MainActivity reads it), so one wrong key press can't derail the rest of the walkthrough.
 set -u
 OUT="$1"
 API="$2"
@@ -25,19 +28,19 @@ hide_keyboard() {
         sleep 1
     fi
 }
-# Rail order: Home, Library, Guide, Favorites, Markets, Games, Account, Settings.
-open_tab() {
-    press $UP $UP $UP $UP $UP $UP $UP $UP $UP
-    for _ in $(seq 1 "$1"); do press $DOWN; done
-    press $OK
-    sleep "${2:-4}"
-}
 check() {
     if ! alive; then
         echo "::warning::CHUD STREAMS is not running after: $1 (API $API)"
         return 1
     fi
     return 0
+}
+# Restart the app on one tab: home, library, guide, favorites, markets, games, account, settings.
+# The launch animation takes about 3.5 seconds, so the wait includes it.
+open_tab() {
+    adb shell am start -S -W -n "$PKG/$ACTIVITY" --es destination "$1" >/dev/null
+    sleep "${2:-8}"
+    hide_keyboard
 }
 
 adb install -r chud-streams.apk || { echo "::error::Install failed on API $API"; exit 0; }
@@ -47,20 +50,35 @@ sleep 1.6; shot 01-launch-logo
 sleep 7;   shot 02-first-screen
 
 if check "launch"; then
-    # Leave the sign-in form: move down past the fields (closing the keyboard), then left to the menu.
+    # The sign-in form with the keyboard closed and focus on the button.
     hide_keyboard
     for _ in 1 2 3 4 5; do press $DOWN; hide_keyboard; done
     shot 03-sign-in-button
-    press $LEFT
-    open_tab 4 10; shot 04-markets
+
+    open_tab markets 12;  shot 04-markets
     press $RIGHT $DOWN $DOWN; sleep 2; shot 05-markets-token
-    press $LEFT $LEFT $LEFT
-    open_tab 5 3;  shot 06-games
-    press $RIGHT; shot 07-games-focus
-    press $OK; sleep 2; press $OK; sleep 3; shot 08-snake
-    press $BACK; sleep 2; press $LEFT $LEFT
-    open_tab 7 3;  shot 09-settings
-    open_tab 2 3;  shot 10-guide
+    check "markets"
+
+    open_tab games 8;     shot 06-games
+    press $RIGHT;         shot 07-games-focus
+    # Snake: open it, start it, let it run for a moment.
+    press $OK; sleep 2;   shot 08-snake-ready
+    press $OK; sleep 3;   shot 09-snake
+    # Back to the menu (focus returns to Snake), then the block game.
+    press $BACK; sleep 2
+    press $RIGHT $OK; sleep 2; press $OK; sleep 4; shot 10-blocks
+    press $BACK; sleep 2
+    press $RIGHT $OK; sleep 2; press $OK; sleep 3; shot 11-sky-hop
+    press $BACK; sleep 1
+    check "games"
+
+    open_tab settings 8;  shot 12-settings
+    press $RIGHT; for _ in 1 2 3 4 5 6 7 8; do press $DOWN; done; sleep 1; shot 13-settings-more
+    check "settings"
+
+    open_tab guide 8;     shot 14-guide
+    open_tab home 8;      shot 15-home
+    open_tab account 8;   shot 16-account
     check "walkthrough"
 fi
 
@@ -76,5 +94,9 @@ body = "\n".join(line[:300] for line in text.splitlines()[:60])
 body = body.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 print(f"::error title=Crash on API {sys.argv[2]}::{body}")
 PY
+else
+    echo "No crash on API $API."
 fi
+# GitHub won't take empty files as release assets (an empty crash log means no crash).
+find "$OUT" -type f -size 0 -delete
 ls -la "$OUT"

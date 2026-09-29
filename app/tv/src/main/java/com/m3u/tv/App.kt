@@ -12,9 +12,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -46,8 +47,22 @@ import com.m3u.data.database.model.isVod
 import com.m3u.data.tv.model.keyCode
 import com.m3u.i18n.R.string
 
+/** Launch extra naming the tab to open first, e.g. `--es destination games` (see [tvDestinationFromExtra]). */
+const val EXTRA_DESTINATION = "destination"
+
+/**
+ * Maps the [EXTRA_DESTINATION] launch extra to a tab: a tab name such as "games" or "guide", or
+ * "settings" for the settings tab. Anything else means the normal start.
+ */
+fun tvDestinationFromExtra(value: String?): TvDestination? {
+    val name = value?.trim()?.lowercase() ?: return null
+    if (name == "settings") return TvDestination.Status
+    return TvDestination.entries.firstOrNull { it.name.lowercase() == name }
+}
+
 @Composable
 fun App(
+    initialDestination: TvDestination? = null,
     viewModel: TvHomeViewModel = hiltViewModel(),
     dial: DialViewModel = hiltViewModel(),
 ) {
@@ -62,7 +77,7 @@ fun App(
     val context = LocalContext.current
     val diagnosticsShareTitle = stringResource(string.feat_setting_extension_diagnostics_share_title)
     val currentDiagnosticsShareTitle by rememberUpdatedState(diagnosticsShareTitle)
-    var destination by remember { mutableStateOf(TvDestination.Home) }
+    var destination by remember { mutableStateOf(initialDestination ?: TvDestination.Home) }
     var surface by remember { mutableStateOf(TvSurface.Browse) }
     val closePlayer = {
         viewModel.releasePlayer()
@@ -113,6 +128,8 @@ fun App(
     LaunchedEffect(Unit) {
         if (startupHandled) return@LaunchedEffect
         startupHandled = true
+        // A tab asked for by the launch intent wins over the startup setting.
+        if (initialDestination != null) return@LaunchedEffect
         when (dial.preferences.value.startup) {
             DialStartup.Home -> Unit
             DialStartup.Guide -> destination = TvDestination.Guide
@@ -300,17 +317,19 @@ fun App(
             val spokenCode = displayCode.toCharArray().joinToString(separator = " ")
             val pairingCodeDescription =
                 stringResource(string.ui_remote_control_pairing_code, spokenCode)
+            // Phone-remote pairing code, kept small at the foot of the menu rail so it never
+            // covers the tab headers (Markets chips, Guide dates) in the top-right corner.
             Text(
                 text = displayCode,
-                color = TvColors.TextPrimary,
+                color = TvColors.TextSecondary,
                 fontFamily = TvFonts.Body,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(24.dp)
-                    .background(TvColors.Surface.copy(alpha = 0.86f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 18.dp, vertical = 10.dp)
+                    .align(Alignment.BottomStart)
+                    .width(112.dp)
+                    .padding(bottom = 2.dp)
                     .clearAndSetSemantics {
                         contentDescription = pairingCodeDescription
                         liveRegion = LiveRegionMode.Polite
