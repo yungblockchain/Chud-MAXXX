@@ -119,8 +119,9 @@ final class CatalogStore: ObservableObject {
     @Published private(set) var guideVersion = 0
 
     private var lists: [ContentKind: [MediaItem]] = [:]
-    private var byCategory: [ContentKind: [String: [MediaItem]]] = [:]
-    private var byStreamId: [ContentKind: [Int: MediaItem]] = [:]
+    // Positions in `lists`, so big catalogues aren't held twice.
+    private var byCategory: [ContentKind: [String: [Int32]]] = [:]
+    private var byStreamId: [ContentKind: [Int: Int32]] = [:]
     private var indexes: [ContentKind: SearchIndex] = [:]
     private var categoryCache: [String: [MediaItem]] = [:]
     private var loading = Set<ContentKind>()
@@ -142,7 +143,10 @@ final class CatalogStore: ObservableObject {
     func count(_ kind: ContentKind) -> Int { lists[kind]?.count ?? 0 }
     func all(_ kind: ContentKind) -> [MediaItem] { lists[kind] ?? [] }
 
-    func item(_ kind: ContentKind, streamId: Int) -> MediaItem? { byStreamId[kind]?[streamId] }
+    func item(_ kind: ContentKind, streamId: Int) -> MediaItem? {
+        guard let position = byStreamId[kind]?[streamId], let list = lists[kind], Int(position) < list.count else { return nil }
+        return list[Int(position)]
+    }
 
     /// Cached lists first (instant), then a refresh from the provider if they're old or missing.
     func start() {
@@ -268,12 +272,12 @@ final class CatalogStore: ObservableObject {
 
     private func install(_ items: [MediaItem], kind: ContentKind, updated: Date) {
         lists[kind] = items
-        var grouped: [String: [MediaItem]] = [:]
-        var byId: [Int: MediaItem] = [:]
+        var grouped: [String: [Int32]] = [:]
+        var byId: [Int: Int32] = [:]
         byId.reserveCapacity(items.count)
-        for item in items {
-            grouped[item.categoryId ?? "", default: []].append(item)
-            byId[item.streamId] = item
+        for (position, item) in items.enumerated() {
+            grouped[item.categoryId ?? "", default: []].append(Int32(position))
+            byId[item.streamId] = Int32(position)
         }
         byCategory[kind] = grouped
         byStreamId[kind] = byId
@@ -291,8 +295,8 @@ final class CatalogStore: ObservableObject {
 
     /// One category's entries: from the full list when it's here, otherwise from the provider.
     func items(_ kind: ContentKind, category: String) async throws -> [MediaItem] {
-        if let grouped = byCategory[kind] {
-            return grouped[category] ?? []
+        if let grouped = byCategory[kind], let list = lists[kind] {
+            return (grouped[category] ?? []).map { list[Int($0)] }
         }
         let key = "\(kind.rawValue)|\(category)"
         if let cached = categoryCache[key] { return cached }

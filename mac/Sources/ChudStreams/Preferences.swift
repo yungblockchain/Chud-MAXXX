@@ -192,9 +192,11 @@ struct PlaybackSettings: Codable, Equatable {
         }
         switch subtitleMode {
         case .auto:
+            // Forced tracks (signs, foreign dialogue) always; full subtitles only when the audio
+            // isn't in one of the viewer's languages.
             options.append(("sid", "auto"))
             options.append(("subs-fallback-forced", "always"))
-            options.append(("subs-with-matching-audio", "no"))
+            options.append(("subs-with-matching-audio", "forced"))
         case .forcedOnly:
             options.append(("sid", "auto"))
             options.append(("subs-fallback", "no"))

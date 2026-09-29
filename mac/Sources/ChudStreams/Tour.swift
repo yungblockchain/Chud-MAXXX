@@ -125,6 +125,7 @@ enum TourRunner {
             check("subtitle-tracks", subs.count >= 2, subs.map { $0.label }.joined(separator: "; "))
             check("forced-subtitles", player?.selectedSubtitle?.isForced == true, "selected: \(player?.selectedSubtitle?.label ?? "none")")
             await wait(1.5)
+            check("video-frames-drawn", MPVGLLayer.framesDrawn > 10, "\(MPVGLLayer.framesDrawn) frames drawn on screen")
             if let video = shot("09-player"), let window {
                 check("video-picture", pictureLooksLive(video, window: window), "checked the centre of the video area")
             }
@@ -201,7 +202,7 @@ enum TourRunner {
                     check("big-catalogue", done && big.count(.live) >= 49_000 && big.count(.movie) >= 129_000,
                           "\(big.count(.live)) channels, \(big.count(.movie)) films, \(big.count(.series)) series in \(seconds)s, memory \(residentMB()) MB")
                     let searchStart = Date()
-                    let results = await big.search("film 12345", kinds: [.movie], limit: 50)
+                    let results = await big.search("silent harbor", kinds: [.movie], limit: 50)
                     check("big-search", !results.isEmpty, "\(results.count) results in \(Int(Date().timeIntervalSince(searchStart) * 1000)) ms")
                     await go(model, .movies, settle: 4)
                     shot("23-big-films")

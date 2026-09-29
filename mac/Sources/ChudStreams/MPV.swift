@@ -597,6 +597,9 @@ final class MPVGLLayer: CAOpenGLLayer {
         true
     }
 
+    /// Frames drawn by all video layers (the GitHub tour checks video really reaches the screen).
+    static var framesDrawn = 0
+
     override func draw(inCGLContext ctx: CGLContextObj, pixelFormat pf: CGLPixelFormatObj,
                        forLayerTime t: CFTimeInterval, displayTime ts: UnsafePointer<CVTimeStamp>?) {
         var viewport: [GLint] = [0, 0, 0, 0]
@@ -625,6 +628,7 @@ final class MPVGLLayer: CAOpenGLLayer {
         }
         glFlush()
         mpv_render_context_report_swap(renderContext)
+        MPVGLLayer.framesDrawn += 1
     }
 
     /// mpv has a new frame (or needs a redraw).
@@ -733,7 +737,19 @@ final class MPVVideoView: NSView {
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.masksToBounds = true
         glLayer.frame = bounds
+        glLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         layer?.addSublayer(glLayer)
+    }
+
+    // SwiftUI sizes this view by setting its frame; keep the video layers the same size.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateLayerFrames()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateLayerFrames()
     }
 
     override var isOpaque: Bool { true }
@@ -741,6 +757,10 @@ final class MPVVideoView: NSView {
 
     override func layout() {
         super.layout()
+        updateLayerFrames()
+    }
+
+    private func updateLayerFrames() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let scale = window?.backingScaleFactor ?? 2

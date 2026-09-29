@@ -340,10 +340,13 @@ private struct CastMarquee: View {
                     }
                     .transition(.opacity)
                 } else {
-                    row(cast + cast)
-                        .offset(x: offset)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, 36)
+                    // In an overlay, so the long moving row never widens the page.
+                    Color.clear
+                        .overlay(alignment: .leading) {
+                            row(cast + cast)
+                                .offset(x: offset)
+                                .padding(.leading, 36)
+                        }
                         .clipped()
                         .onAppear { start() }
                         .transition(.opacity)
