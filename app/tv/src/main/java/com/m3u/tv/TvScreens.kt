@@ -169,6 +169,8 @@ fun TvBrowsePane(
     dialSettingsContent: @Composable () -> Unit = {},
     playbackSettingsContent: @Composable () -> Unit = {},
     favouritesContent: @Composable () -> Unit = {},
+    trending: List<TrendingEntry> = emptyList(),
+    onOpenTrending: (TrendingEntry) -> Unit = {},
     myLibraryContent: @Composable () -> Unit = {},
     servicesSettingsContent: @Composable () -> Unit = {},
 ) {
@@ -205,6 +207,8 @@ fun TvBrowsePane(
                     onPlay = onPlay,
                     onPlayRecent = onPlayRecent,
                     continueWatching = continueWatching,
+                    trending = trending,
+                    onOpenTrending = onOpenTrending,
                 )
 
                 TvDestination.Library -> LibraryScreen(
@@ -289,6 +293,8 @@ private fun HomeScreen(
     onPlay: (Channel) -> Unit,
     onPlayRecent: () -> Unit,
     continueWatching: List<Channel> = emptyList(),
+    trending: List<TrendingEntry> = emptyList(),
+    onOpenTrending: (TrendingEntry) -> Unit = {},
 ) {
     // The last ten things watched (live, films, episodes); before anything's been watched, a
     // taste of the selected playlist.
@@ -357,6 +363,11 @@ private fun HomeScreen(
                         firstItemFocusRequester = firstFeaturedFocusRequester
                     )
                 }
+            }
+        }
+        if (trending.isNotEmpty()) {
+            item(key = "trending") {
+                TrendingRow(entries = trending, onOpen = onOpenTrending)
             }
         }
         // Dial: films and series with saved progress, opened on their details page.

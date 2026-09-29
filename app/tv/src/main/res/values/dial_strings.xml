@@ -436,4 +436,20 @@
     <string name="dial_menu_category_hide">Hide this category</string>
     <string name="dial_menu_category_show_all">Show hidden categories (%1$d)</string>
     <string name="dial_menu_category_reset">Reset category order</string>
+
+    <!-- TMDB and Trakt -->
+    <string name="dial_trending_title">Trending this week</string>
+    <string name="dial_trending_subtitle">From TMDB. Marked ones are in your playlists.</string>
+    <string name="dial_trending_in_playlists">IN YOURS</string>
+    <string name="dial_trending_not_found">%1$s isn\'t in your playlists</string>
+    <string name="dial_details_cast_title">Cast</string>
+    <string name="dial_details_imdb">Open on IMDb</string>
+    <string name="dial_details_imdb_qr">QR code for the IMDb page</string>
+    <string name="dial_details_comments">Reviews on Trakt</string>
+    <string name="dial_details_comments_hint">Add a Trakt client ID in Settings, Services to see reviews and comments here.</string>
+    <string name="dial_details_comment_rating">%1$d/10</string>
+    <string name="dial_details_comment_likes">%1$d likes</string>
+    <string name="dial_details_spoiler">Contains spoilers. Press OK to read.</string>
+    <string name="dial_person_born">Born %1$s</string>
+    <string name="dial_person_known_for">Known for</string>
 </resources>

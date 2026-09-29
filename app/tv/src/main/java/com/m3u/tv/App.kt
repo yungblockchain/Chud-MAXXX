@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -66,6 +67,7 @@ import com.m3u.data.database.model.isVod
 import com.m3u.data.tv.model.keyCode
 import com.m3u.i18n.R.string
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 
 /** Launch extra naming the tab to open first, e.g. `--es destination games` (see [tvDestinationFromExtra]). */
@@ -110,6 +112,7 @@ fun App(
     viewModel: TvHomeViewModel = hiltViewModel(),
     dial: DialViewModel = hiltViewModel(),
     claude: ClaudeViewModel = hiltViewModel(),
+    metadata: MetadataViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val player by viewModel.player.collectAsStateWithLifecycle()
@@ -241,6 +244,31 @@ fun App(
         if (surface == TvSurface.Browse) {
             dial.refreshAfterPlayback()
             viewModel.refreshRecentlyPlayed()
+        }
+    }
+
+    // TMDB and Trakt (with the person's own keys).
+    val trending by metadata.trending.collectAsStateWithLifecycle()
+    val detailsExtras by metadata.extras.collectAsStateWithLifecycle()
+    val person by metadata.person.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val notInPlaylists = stringResource(R.string.dial_trending_not_found)
+    LaunchedEffect(destination) {
+        if (destination == TvDestination.Home) metadata.loadTrending()
+    }
+    LaunchedEffect(details?.channel?.id, details?.loading) {
+        val current = details ?: return@LaunchedEffect
+        if (!current.loading) metadata.loadExtras(current)
+    }
+    val openTmdbTitle: (TmdbTitle, Channel?) -> Unit = { title, known ->
+        scope.launch {
+            val channel = known ?: metadata.findInCatalogue(title)
+            if (channel == null) {
+                Toast.makeText(context, notInPlaylists.format(title.title), Toast.LENGTH_SHORT).show()
+            } else {
+                metadata.closePerson()
+                openOrPlay(channel)
+            }
         }
     }
 
@@ -454,6 +482,8 @@ fun App(
                             onDeleteGroup = dial::deleteGroup,
                         )
                     },
+                    trending = trending,
+                    onOpenTrending = { entry -> openTmdbTitle(entry.title, entry.channel) },
                     myLibraryContent = {
                         MyLibraryScreen(
                             state = state,
@@ -488,7 +518,7 @@ fun App(
         details?.let { current ->
             DetailsScreen(
                 state = current,
-                active = surface == TvSurface.Browse,
+                active = surface == TvSurface.Browse && person == null,
                 isFavourite = state.favorites.any { it.id == current.channel.id },
                 onPlayFilm = { fromStart ->
                     if (dial.playsExternally(current.channel)) {
@@ -517,6 +547,16 @@ fun App(
                 onSelectSeason = dial::selectSeason,
                 onToggleFavourite = { viewModel.toggleFavorite(current.channel) },
                 onBack = dial::closeDetails,
+                extras = detailsExtras,
+                onOpenPerson = { member -> metadata.openPerson(member.id) },
+            )
+        }
+
+        person?.let { current ->
+            PersonScreen(
+                state = current,
+                onOpenTitle = { title -> openTmdbTitle(title, null) },
+                onBack = metadata::closePerson,
             )
         }
 
