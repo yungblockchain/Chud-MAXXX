@@ -501,6 +501,7 @@ private fun FeaturedCarouselPane(
             if (channel != null) {
                 PosterArt(
                     model = channel.cover,
+                    fitLogos = false,
                     modifier = Modifier.fillMaxSize()
                 )
             }

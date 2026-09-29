@@ -804,7 +804,9 @@ fun MetricTile(
 @Composable
 fun PosterArt(
     model: String?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Off for backdrops, which always fill their frame. */
+    fitLogos: Boolean = true,
 ) {
     // Posters fill the frame; logos and wide pictures are shown whole, never cut off.
     var shape by remember(model) { mutableStateOf(ArtShape.Unknown) }
@@ -817,7 +819,8 @@ fun PosterArt(
             model = model,
             contentDescription = null,
             contentScale = if (shape == ArtShape.Logo) ContentScale.Fit else ContentScale.Crop,
-            onSuccess = { success ->
+            onSuccess = onSuccess@{ success ->
+                if (!fitLogos) return@onSuccess
                 val drawable = success.result.drawable
                 val ratio = if (drawable.intrinsicHeight > 0) {
                     drawable.intrinsicWidth.toFloat() / drawable.intrinsicHeight
