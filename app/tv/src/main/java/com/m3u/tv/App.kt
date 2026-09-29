@@ -51,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.platform.LocalConfiguration
@@ -91,11 +92,25 @@ const val EXTRA_DESTINATION = "destination"
 fun tvDestinationFromExtra(value: String?): TvDestination? {
     val name = value?.trim()?.lowercase() ?: return null
     if (name == "settings") return TvDestination.Status
+    // The old single Browse tab is Live TV now.
+    if (name == "library" || name == "browse") return TvDestination.Live
     return TvDestination.entries.firstOrNull { it.name.lowercase() == name }
 }
 
+/** The tab for Live TV, Films or Series. */
+private val CatalogKind.destination: TvDestination
+    get() = when (this) {
+        CatalogKind.Live -> TvDestination.Live
+        CatalogKind.Films -> TvDestination.Films
+        CatalogKind.Series -> TvDestination.Series
+    }
+
 /** How long a screen gets to take focus itself before the app puts focus in it. */
 private const val FOCUS_RESCUE_MS = 450L
+
+/** The remote counts as resting after this long without a key press. */
+private const val REMOTE_IDLE_AFTER_MS = 3_000L
+private const val REMOTE_IDLE_CHECK_MS = 1_000L
 
 /** How long the "press Back again" hint waits for the second press. */
 private const val EXIT_WINDOW_MS = 2_500L
@@ -298,7 +313,7 @@ fun App(
         services.phoneMessages.collect { message ->
             when (message) {
                 is PhoneMessage.Search -> {
-                    destination = TvDestination.Library
+                    destination = TvDestination.Search
                     viewModel.search(message.query)
                 }
                 is PhoneMessage.AskClaude -> {
@@ -435,6 +450,19 @@ fun App(
         onDispose { view.keepScreenOn = false }
     }
 
+    // Whether the remote was used in the last few seconds (LocalTvRemoteBusy). Only what reads it
+    // (the menu's logo) redraws when it flips, never this whole screen.
+    val remoteBusy = remember { mutableStateOf(false) }
+    val lastKeyAt = remember { longArrayOf(0L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(REMOTE_IDLE_CHECK_MS)
+            if (remoteBusy.value && SystemClock.uptimeMillis() - lastKeyAt[0] >= REMOTE_IDLE_AFTER_MS) {
+                remoteBusy.value = false
+            }
+        }
+    }
+
     LaunchedEffect(exitArmedAt) {
         if (exitArmedAt == 0L) return@LaunchedEffect
         delay(EXIT_WINDOW_MS)
@@ -491,6 +519,9 @@ fun App(
             .background(TvColors.Background)
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .onPreviewKeyEvent { event ->
+                // Note the remote being used (decorative motion waits for it to rest).
+                lastKeyAt[0] = SystemClock.uptimeMillis()
+                if (!remoteBusy.value) remoteBusy.value = true
                 // Mini player: Menu brings it back full screen; play/pause works from anywhere.
                 if (surface != TvSurface.Mini || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
@@ -506,7 +537,9 @@ fun App(
                 }
             }
     ) {
-        TvBackdrop(channel = currentChannel ?: state.heroChannel)
+        // Only what's playing (or was last played) sets the backdrop, so browsing categories
+        // never swaps the picture behind the whole screen.
+        TvBackdrop(channel = currentChannel ?: state.recent)
         val browsing = onBrowse && details == null && !showSplash
         // Nothing focused after the launch animation, a tab change or an overlay closing (the
         // screen asked for focus while it couldn't take it): put focus in the screen, so the
@@ -520,27 +553,32 @@ fun App(
             LocalTvFocusEnabled provides browsing,
             LocalChannelMenu provides openChannelMenu.takeIf { browsing },
             LocalCategoryMenu provides openCategoryMenu.takeIf { browsing },
+            LocalTvRemoteBusy provides remoteBusy,
         ) {
-            Row(
+            // The menu folds to a strip of icons at the left edge and opens over the screen, so
+            // screens start just after the strip and never re-flow when it opens.
+            Box(
                 Modifier
                     .fillMaxSize()
                     .onFocusChanged { browseHasFocus = it.hasFocus }
             ) {
-                TvNavigationRail(
-                    selected = destination,
-                    onSelect = { destination = it }
-                )
                 TvBrowsePane(
+                    // Right from the menu goes back to where focus was on the screen.
                     modifier = Modifier
+                        .padding(start = RAIL_COLLAPSED_WIDTH)
                         .focusRequester(contentFocus)
+                        .focusRestorer()
                         .focusGroup(),
                     destination = destination,
                     state = state,
-                    onOpenLibrary = { destination = TvDestination.Library },
-                    onPlaylist = {
-                        viewModel.selectPlaylist(it)
-                        destination = TvDestination.Library
+                    onOpenLibrary = { destination = TvDestination.Live },
+                    onPlaylist = viewModel::selectPlaylist,
+                    onOpenCatalog = viewModel::openCatalog,
+                    onShowCatalog = { kind ->
+                        viewModel.openCatalog(kind)
+                        destination = kind.destination
                     },
+                    onAddSource = { destination = TvDestination.Account },
                     onRefresh = viewModel::refreshSelectedPlaylist,
                     onPlay = openOrPlay,
                     onPlayRecent = { state.recent?.let(openOrPlay) },
@@ -638,6 +676,10 @@ fun App(
                             pairingCode = remoteControlCode?.toString()?.padStart(6, '0'),
                         )
                     },
+                )
+                TvNavigationRail(
+                    selected = destination,
+                    onSelect = { destination = it },
                 )
             }
         }

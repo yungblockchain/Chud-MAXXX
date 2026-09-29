@@ -129,6 +129,7 @@ import com.m3u.extension.api.ExtensionSettingType
 import com.m3u.extension.api.ExtensionState
 import com.m3u.i18n.R.string
 import com.m3u.i18n.R.plurals
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -174,6 +175,11 @@ fun TvBrowsePane(
     onOpenTrending: (TrendingEntry) -> Unit = {},
     myLibraryContent: @Composable () -> Unit = {},
     servicesSettingsContent: @Composable () -> Unit = {},
+    /** Live TV, Films or Series should show a source of its kind. */
+    onOpenCatalog: (CatalogKind) -> Unit = {},
+    /** Go to the Live TV, Films or Series tab (Home's big buttons). */
+    onShowCatalog: (CatalogKind) -> Unit = {},
+    onAddSource: () -> Unit = {},
 ) {
     Box(
         modifier = modifier
@@ -192,10 +198,10 @@ fun TvBrowsePane(
             XtreamSignInScreen(requestInitialFocus = destination == TvDestination.Home)
         } else AnimatedContent(
             targetState = destination,
+            // A quick cross-fade: the new tab is built while the old one fades, so a longer or
+            // sliding change would only show the building.
             transitionSpec = {
-                (fadeIn(tween(TAB_IN_MS, delayMillis = TAB_OUT_MS / 2)) +
-                    slideInVertically(tween(TAB_IN_MS)) { it / TAB_SLIDE_DIVISOR })
-                    .togetherWith(fadeOut(tween(TAB_OUT_MS)))
+                fadeIn(tween(TAB_IN_MS)).togetherWith(fadeOut(tween(TAB_OUT_MS)))
             },
             label = "tv-destination",
             modifier = Modifier.fillMaxSize(),
@@ -204,21 +210,33 @@ fun TvBrowsePane(
                 TvDestination.Home -> HomeScreen(
                     state = state,
                     onOpenLibrary = onOpenLibrary,
-                    onPlaylist = onPlaylist,
                     onPlay = onPlay,
                     onPlayRecent = onPlayRecent,
                     continueWatching = continueWatching,
                     trending = trending,
                     onOpenTrending = onOpenTrending,
+                    onShowCatalog = onShowCatalog,
                 )
 
-                TvDestination.Library -> LibraryScreen(
+                TvDestination.Search -> SearchScreen(
                     state = state,
-                    onPlaylist = onPlaylist,
+                    onSearch = onSearch,
+                    onPlay = onPlay,
+                )
+
+                TvDestination.Live, TvDestination.Films, TvDestination.Series -> CatalogScreen(
+                    kind = when (shown) {
+                        TvDestination.Films -> CatalogKind.Films
+                        TvDestination.Series -> CatalogKind.Series
+                        else -> CatalogKind.Live
+                    },
+                    state = state,
+                    onOpenCatalog = onOpenCatalog,
+                    onSelectPlaylist = onPlaylist,
+                    onSelectCategory = onSelectCategory,
                     onRefresh = onRefresh,
                     onPlay = onPlay,
-                    onSelectCategory = onSelectCategory,
-                    onSearch = onSearch,
+                    onAddSource = onAddSource,
                 )
 
                 TvDestination.Favorites -> favouritesContent()
@@ -290,12 +308,12 @@ fun TvBrowsePane(
 private fun HomeScreen(
     state: TvUiState,
     onOpenLibrary: () -> Unit,
-    onPlaylist: (Playlist) -> Unit,
     onPlay: (Channel) -> Unit,
     onPlayRecent: () -> Unit,
     continueWatching: List<Channel> = emptyList(),
     trending: List<TrendingEntry> = emptyList(),
     onOpenTrending: (TrendingEntry) -> Unit = {},
+    onShowCatalog: (CatalogKind) -> Unit = {},
 ) {
     // The last ten things watched (live, films, episodes); before anything's been watched, a
     // taste of the selected playlist.
@@ -309,7 +327,15 @@ private fun HomeScreen(
                 .take(10)
         }
     }
+    // The hero follows the card in focus once the remote rests on it, not on every step, so
+    // running along a row doesn't reload the big picture each time.
+    var focusedChannel by remember { mutableStateOf<Channel?>(null) }
     var highlightedChannel by remember { mutableStateOf<Channel?>(null) }
+    LaunchedEffect(focusedChannel) {
+        val next = focusedChannel ?: return@LaunchedEffect
+        delay(HERO_FOLLOW_DELAY_MS)
+        highlightedChannel = next
+    }
     val activeChannel = highlightedChannel ?: featuredChannels.firstOrNull() ?: state.heroChannel
     val heroFocusRequester = remember { FocusRequester() }
     val firstFeaturedFocusRequester = remember { FocusRequester() }
@@ -360,7 +386,7 @@ private fun HomeScreen(
                     ContentRow(
                         channels = featuredChannels,
                         onPlay = onPlay,
-                        onFocused = { highlightedChannel = it },
+                        onFocused = { focusedChannel = it },
                         firstItemFocusRequester = firstFeaturedFocusRequester
                     )
                 }
@@ -383,34 +409,24 @@ private fun HomeScreen(
                     ContentRow(
                         channels = continueWatching,
                         onPlay = onPlay,
-                        onFocused = { highlightedChannel = it },
+                        onFocused = { focusedChannel = it },
                     )
                 }
             }
         }
-        item {
+        // Straight into Live TV, Films or Series.
+        item(key = "doors") {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SectionTitle(
-                    title = stringResource(string.tv_section_playlists),
-                    subtitle = stringResource(string.tv_section_playlists_hint),
+                    title = stringResource(R.string.dial_home_browse),
+                    subtitle = stringResource(R.string.dial_home_browse_hint),
                     modifier = Modifier.padding(start = 48.dp)
                 )
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    contentPadding = PaddingValues(start = 48.dp, top = 16.dp, end = 48.dp, bottom = 8.dp),
-                    modifier = Modifier.focusGroup()
-                ) {
-                    items(state.playlists, key = { it.url }) { playlist ->
-                        PlaylistCard(
-                            playlist = playlist,
-                            count = state.counts[playlist] ?: 0,
-                            selected = playlist == state.selectedPlaylist,
-                            onClick = { onPlaylist(playlist) },
-                            modifier = Modifier
-                                .widthIn(min = 256.dp, max = 336.dp)
-                        )
-                    }
-                }
+                CatalogDoors(
+                    state = state,
+                    onOpen = onShowCatalog,
+                    modifier = Modifier.padding(start = 48.dp, top = 8.dp, end = 48.dp, bottom = 8.dp)
+                )
             }
         }
     }
@@ -627,196 +643,6 @@ private fun HeroActionChip(
                 fontFamily = TvFonts.Body,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-@Composable
-private fun LibraryScreen(
-    state: TvUiState,
-    onPlaylist: (Playlist) -> Unit,
-    onRefresh: () -> Unit,
-    onPlay: (Channel) -> Unit,
-    onSelectCategory: (String?) -> Unit,
-    onSearch: (String) -> Unit,
-) {
-    val searchActive = state.searchQuery.trim().length >= 2
-    val playlistFocusRequester = remember { FocusRequester() }
-    val focusTarget = state.selectedPlaylist ?: state.playlists.firstOrNull()
-    var initialFocusRequested by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        if (focusTarget != null && !initialFocusRequested) {
-            yield()
-            playlistFocusRequester.requestFocus()
-            initialFocusRequested = true
-        }
-    }
-
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(24.dp),
-        contentPadding = PaddingValues(start = 48.dp, top = 48.dp, end = 64.dp, bottom = 48.dp),
-        modifier = Modifier
-            .fillMaxSize()
-            .focusGroup()
-    ) {
-        item {
-            SectionTitle(
-                title = stringResource(R.string.dial_nav_browse),
-                subtitle = stringResource(string.tv_library_subtitle)
-            )
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(top = 16.dp, bottom = 8.dp),
-                modifier = Modifier.focusGroup()
-            ) {
-                items(state.playlists, key = { it.url }) { playlist ->
-                    PlaylistCard(
-                        playlist = playlist,
-                        count = state.counts[playlist] ?: 0,
-                        selected = playlist == state.selectedPlaylist,
-                        onClick = { onPlaylist(playlist) },
-                        focusRequester = if (playlist.url == focusTarget?.url) playlistFocusRequester else null,
-                        modifier = Modifier
-                            .widthIn(min = 256.dp, max = 336.dp)
-                    )
-                }
-            }
-        }
-
-        // Search across every playlist: with 130k films, browsing alone doesn't cut it.
-        item(key = "search") {
-            Box(Modifier.widthIn(max = 640.dp)) {
-                DialTextField(
-                    label = stringResource(R.string.dial_library_search_label),
-                    value = state.searchQuery,
-                    onValueChange = onSearch,
-                    placeholder = stringResource(R.string.dial_library_search_placeholder),
-                    keyboardType = KeyboardType.Text,
-                    imeAction = ImeAction.Done,
-                    readOnly = false,
-                )
-            }
-        }
-
-        if (searchActive) {
-            item(key = "search-status") {
-                val query = state.searchQuery.trim()
-                Text(
-                    text = when {
-                        state.searching -> stringResource(R.string.dial_library_searching)
-                        state.searchResults.isEmpty() ->
-                            stringResource(R.string.dial_library_search_none, query)
-                        else -> stringResource(R.string.dial_library_search_results, query)
-                    },
-                    color = TvColors.TextSecondary,
-                    fontSize = 16.sp,
-                    fontFamily = TvFonts.Body,
-                    maxLines = 2,
-                )
-            }
-            item(key = "search-results") {
-                ChannelGrid(
-                    channels = state.searchResults,
-                    onPlay = onPlay,
-                    modifier = Modifier.height(620.dp)
-                )
-            }
-            return@LazyColumn
-        }
-
-        item {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = state.selectedPlaylist?.title?.title().orEmpty(),
-                        color = TvColors.TextPrimary,
-                        fontSize = 30.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = TvFonts.Body,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = pluralStringResource(
-                            plurals.tv_channel_count,
-                            state.channels.size,
-                            state.channels.size,
-                        ),
-                        color = TvColors.TextSecondary,
-                        fontSize = 14.sp,
-                        fontFamily = TvFonts.Body,
-                        maxLines = 1
-                    )
-                }
-                TvActionButton(
-                    text = stringResource(string.feat_setting_label_subscribe),
-                    icon = Icons.Rounded.Refresh,
-                    onClick = onRefresh
-                )
-            }
-        }
-
-        if (state.categories.size > 1) {
-            item(key = "categories") {
-                CategoryChips(state = state, onSelectCategory = onSelectCategory)
-            }
-        }
-
-        item {
-            ChannelGrid(
-                channels = state.channels,
-                onPlay = onPlay,
-                modifier = Modifier.height(620.dp)
-            )
-        }
-    }
-}
-
-/**
- * The selected playlist's categories with how many entries each holds. "All" is left out for
- * playlists too big to show at once; they open on their first category instead.
- */
-@Composable
-internal fun CategoryChips(
-    state: TvUiState,
-    onSelectCategory: (String?) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val uncategorised = stringResource(R.string.dial_category_uncategorised)
-    val total = remember(state.categories) { state.categories.sumOf { it.count } }
-    val categoryMenu = LocalCategoryMenu.current
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = modifier.focusGroup()
-    ) {
-        if (state.allCategoriesAllowed) {
-            item(key = "all") {
-                TvActionButton(
-                    text = stringResource(R.string.dial_category_all, total),
-                    icon = Icons.Rounded.Category,
-                    selected = state.selectedCategory == null,
-                    onClick = { onSelectCategory(null) },
-                )
-            }
-        }
-        items(state.categories, key = { "category-${it.name}" }) { category ->
-            val chipRequester = remember { FocusRequester() }
-            TvActionButton(
-                focusRequester = chipRequester,
-                text = stringResource(
-                    R.string.dial_category_chip,
-                    category.name.ifBlank { uncategorised },
-                    category.count,
-                ),
-                icon = Icons.Rounded.Category,
-                selected = state.selectedCategory == category.name,
-                onClick = { onSelectCategory(category.name) },
-                onLongClick = categoryMenu?.let { menu -> { menu(category.name, chipRequester) } },
             )
         }
     }
@@ -2733,8 +2559,16 @@ private fun TvExtensionSettingControl(
             ExtensionSettingType.NUMBER,
             ExtensionSettingType.SECRET -> {
                 var focused by remember { mutableStateOf(false) }
+                // Read-only until OK is pressed, so moving onto the box never opens the keyboard.
+                var typing by remember { mutableStateOf(false) }
                 val actionFocusRequester = remember(field.key) { FocusRequester() }
                 val extensionKeyboard = LocalSoftwareKeyboardController.current
+                LaunchedEffect(typing) {
+                    if (typing) {
+                        withFrameNanos { }
+                        extensionKeyboard?.show()
+                    }
+                }
                 val singleLineInput =
                     field.type != ExtensionSettingType.TEXT || field.networkOrigin
                 if (field.type == ExtensionSettingType.SECRET && secretConfigured) {
@@ -2759,8 +2593,13 @@ private fun TvExtensionSettingControl(
                                         actionFocusRequester.requestFocus()
 
                                     Key.DirectionCenter, Key.Enter -> {
-                                        extensionKeyboard?.show()
+                                        if (typing) extensionKeyboard?.show() else typing = true
                                         true
+                                    }
+
+                                    Key.Back -> {
+                                        typing = false
+                                        false
                                     }
 
                                     else -> false
@@ -2771,13 +2610,17 @@ private fun TvExtensionSettingControl(
                     BasicTextField(
                         value = rawValue,
                         onValueChange = onDraftChange,
+                        readOnly = !typing,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 52.dp)
                             .then(
                                 focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier
                             )
-                            .onFocusChanged { focused = it.isFocused }
+                            .onFocusChanged {
+                                focused = it.isFocused
+                                if (!it.isFocused) typing = false
+                            }
                             .semantics {
                                 contentDescription = semanticFieldDescription
                                 if (field.type == ExtensionSettingType.SECRET) {
@@ -3086,10 +2929,12 @@ private fun SetupStep(text: String) {
     }
 }
 
-// Tab changes: a quick fade and a short rise, light enough for a Fire TV Stick.
-private const val TAB_IN_MS = 220
-private const val TAB_OUT_MS = 120
-private const val TAB_SLIDE_DIVISOR = 28
+// Tab changes: a quick cross-fade, light enough for a Fire TV Stick.
+private const val TAB_IN_MS = 160
+private const val TAB_OUT_MS = 90
+
+/** How long the remote rests on a Home card before the hero shows it. */
+private const val HERO_FOLLOW_DELAY_MS = 280L
 
 /** Home hero height on a 1080p screen (about 60% of it). */
 private const val HERO_HEIGHT_DP = 320

@@ -33,6 +33,7 @@ import java.awt.GradientPaint
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Base64
 import java.util.Date
@@ -1104,5 +1105,16 @@ private fun transportStreamPlaceholder(channel: String, number: Int): ByteArray 
     }
 }
 
+/**
+ * Films and episodes: a real video file when MOCK_SAMPLE_VIDEO names one (the emulator check makes
+ * a short clip with ffmpeg, so playback itself gets tested), otherwise a small placeholder.
+ */
+private val sampleVideo: ByteArray? by lazy {
+    System.getenv("MOCK_SAMPLE_VIDEO")
+        ?.let(::File)
+        ?.takeIf { it.isFile }
+        ?.readBytes()
+}
+
 private fun mp4Placeholder(id: String): ByteArray =
-    "M3U mock MP4 placeholder: id=$id\n".encodeToByteArray()
+    sampleVideo ?: "M3U mock MP4 placeholder: id=$id\n".encodeToByteArray()

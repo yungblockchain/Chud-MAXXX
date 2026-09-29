@@ -103,6 +103,17 @@ data class TvUiState(
     val heroChannel: Channel? get() = recent ?: channels.firstOrNull()
 }
 
+/** The three things a source can hold, each with its own tab: Live TV, Films and Series. */
+enum class CatalogKind { Live, Films, Series }
+
+/** Xtream accounts come in as three playlists (live, films, series); M3U playlists are live. */
+val Playlist.catalogKind: CatalogKind
+    get() = when {
+        isSeries -> CatalogKind.Series
+        isVod -> CatalogKind.Films
+        else -> CatalogKind.Live
+    }
+
 sealed interface TvProviderSubscriptionFeedback {
     data object InvalidSettings : TvProviderSubscriptionFeedback
     data object Failed : TvProviderSubscriptionFeedback
@@ -206,12 +217,39 @@ class TvHomeViewModel @Inject constructor(
         refreshSubscriptionProviders()
     }
 
+    // Where each tab (Live TV, Films, Series) was left: its source, and each source's category.
+    private val lastPlaylistByKind = mutableMapOf<CatalogKind, String>()
+    private val lastCategoryByUrl = mutableMapOf<String, String?>()
+
     fun selectPlaylist(playlist: Playlist) {
         if (_state.value.selectedPlaylist?.url == playlist.url) return
+        lastPlaylistByKind[playlist.catalogKind] = playlist.url
+        // Back where this source was left; the old list goes at once, so a tab never shows
+        // another tab's channels while its own load.
         _state.update {
-            it.copy(selectedPlaylist = playlist, selectedCategory = null, categories = emptyList())
+            it.copy(
+                selectedPlaylist = playlist,
+                selectedCategory = lastCategoryByUrl[playlist.url],
+                categories = emptyList(),
+                channels = emptyList(),
+                loadingChannels = true,
+            )
         }
-        loadChannels(playlist.url)
+        loadChannels(playlist.url, keepCategory = true)
+    }
+
+    /**
+     * Live TV, Films or Series opened: shows the source of that kind used last (or the first),
+     * unless one of that kind is already showing.
+     */
+    fun openCatalog(kind: CatalogKind) {
+        val state = _state.value
+        if (state.selectedPlaylist?.catalogKind == kind) return
+        val sources = state.playlists.filter { it.catalogKind == kind }
+        val target = sources.firstOrNull { it.url == lastPlaylistByKind[kind] }
+            ?: sources.firstOrNull()
+            ?: return
+        selectPlaylist(target)
     }
 
     /** Shows one category of the selected playlist, or all of it for null (when allowed). */
@@ -220,7 +258,8 @@ class TvHomeViewModel @Inject constructor(
         val url = state.selectedPlaylist?.url ?: return
         if (category == state.selectedCategory) return
         if (category == null && !state.allCategoriesAllowed) return
-        _state.update { it.copy(selectedCategory = category) }
+        lastCategoryByUrl[url] = category
+        _state.update { it.copy(selectedCategory = category, loadingChannels = true) }
         loadChannels(url, keepCategory = true)
     }
 
@@ -967,6 +1006,7 @@ class TvHomeViewModel @Inject constructor(
                 total <= ALL_CATEGORIES_LIMIT -> null
                 else -> categories.firstOrNull()?.name
             }
+            lastCategoryByUrl[url] = category
             val playlist = _state.value.selectedPlaylist?.takeIf { it.url == url }
             // Films and series read best A to Z; live channels keep the provider's numbering.
             val byTitle = playlist != null && (playlist.isVod || playlist.isSeries)

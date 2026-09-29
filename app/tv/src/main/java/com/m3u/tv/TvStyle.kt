@@ -1,13 +1,16 @@
 package com.m3u.tv
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.automirrored.rounded.TrendingUp
 import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.Bookmarks
+import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material.icons.rounded.LiveTv
+import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.SportsEsports
@@ -60,18 +63,22 @@ object TvFonts {
     )
 }
 
+/** The side menu's entries, top to bottom. */
 enum class TvDestination(
     val icon: ImageVector
 ) {
+    Search(Icons.Rounded.Search),
     Home(Icons.Rounded.Home),
-    Library(Icons.AutoMirrored.Rounded.PlaylistPlay),
-    Guide(Icons.Rounded.LiveTv),
+    Live(Icons.Rounded.LiveTv),
+    Films(Icons.Rounded.Movie),
+    Series(Icons.Rounded.VideoLibrary),
+    Guide(Icons.Rounded.DateRange),
     Favorites(Icons.Rounded.Favorite),
     /** Saved films and series, and what's half-watched. */
-    MyLibrary(Icons.Rounded.VideoLibrary),
+    MyLibrary(Icons.Rounded.Bookmarks),
     Markets(Icons.AutoMirrored.Rounded.TrendingUp),
-    Games(Icons.Rounded.SportsEsports),
     Claude(Icons.Rounded.AutoAwesome),
+    Games(Icons.Rounded.SportsEsports),
     Account(Icons.Rounded.AccountCircle),
     Status(Icons.Rounded.Settings)
 }

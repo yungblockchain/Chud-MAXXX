@@ -501,6 +501,40 @@
     <string name="dial_multiview_change">Change channel</string>
     <string name="dial_multiview_remove">Remove from Multiview</string>
     <string name="dial_multiview_pick">Choose a channel</string>
-    <string name="dial_multiview_pick_empty">Add favourites or open a live playlist in Browse first.</string>
+    <string name="dial_multiview_pick_empty">Add favourites or open a category in Live TV first.</string>
     <string name="dial_menu_multiview">Add to Multiview</string>
+
+    <!-- Live TV, Films, Series and Search tabs. -->
+    <string name="dial_nav_live">Live TV</string>
+    <string name="dial_nav_films">Films</string>
+    <string name="dial_nav_series">Series</string>
+    <string name="dial_nav_search">Search</string>
+    <string name="dial_catalog_all">All</string>
+    <string name="dial_catalog_update">Update list</string>
+    <string name="dial_catalog_loading">Loading…</string>
+    <string name="dial_catalog_nothing">Nothing in this category.</string>
+    <string name="dial_catalog_categories">Categories</string>
+    <string name="dial_catalog_empty_live">No live TV yet</string>
+    <string name="dial_catalog_empty_films">No films yet</string>
+    <string name="dial_catalog_empty_series">No series yet</string>
+    <string name="dial_catalog_empty_hint">Sign in to an Xtream account, or add an M3U playlist, in Accounts. Xtream accounts bring live TV, films and series.</string>
+    <string name="dial_catalog_add_source">Open Accounts</string>
+    <string name="dial_catalog_subtitle">%1$s · %2$s</string>
+    <plurals name="dial_catalog_count_live">
+        <item quantity="one">%s channel</item>
+        <item quantity="other">%s channels</item>
+    </plurals>
+    <plurals name="dial_catalog_count_films">
+        <item quantity="one">%s film</item>
+        <item quantity="other">%s films</item>
+    </plurals>
+    <plurals name="dial_catalog_count_series">
+        <item quantity="one">%s series</item>
+        <item quantity="other">%s series</item>
+    </plurals>
+    <string name="dial_search_hint">Press OK on the box to type. Searches live TV, films and series.</string>
+    <string name="dial_search_start">Type at least two letters.</string>
+    <string name="dial_home_browse">Watch</string>
+    <string name="dial_home_browse_hint">Live channels, films and series, by category.</string>
+    <string name="dial_nav_menu_hint">Menu</string>
 </resources>

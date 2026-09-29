@@ -1,5 +1,6 @@
 package com.m3u.tv
 
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
@@ -37,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
@@ -345,6 +347,11 @@ private fun signInErrorText(failure: XtreamSignInPhase.Failed): String = when (f
 /**
  * Single-line field that behaves on a remote: up/down leave the field instead of moving the
  * caret, and the centre button opens the on-screen keyboard.
+ *
+ * Moving onto the field only highlights it. Until OK is pressed the field is read-only, so no
+ * typing session exists and nothing can bring the keyboard up (Fire OS opens it for any focused
+ * text box that's ready for typing, whatever the app asks). Leaving the field, or Done on the
+ * keyboard, ends typing again.
  */
 @Composable
 internal fun DialTextField(
@@ -364,6 +371,15 @@ internal fun DialTextField(
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     var focused by remember { mutableStateOf(false) }
+    var typing by remember { mutableStateOf(false) }
+    // The typing session starts a frame after the field stops being read-only; ask for the
+    // keyboard once it exists.
+    LaunchedEffect(typing) {
+        if (typing) {
+            withFrameNanos { }
+            keyboard?.show()
+        }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
@@ -376,7 +392,7 @@ internal fun DialTextField(
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
-            readOnly = readOnly,
+            readOnly = readOnly || !typing,
             singleLine = true,
             textStyle = TextStyle(
                 color = TvColors.TextPrimary,
@@ -392,9 +408,14 @@ internal fun DialTextField(
                 showKeyboardOnFocus = false,
             ),
             keyboardActions = KeyboardActions(
-                onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                onNext = {
+                    // "Next" on the keyboard carries on typing in the field below.
+                    KeyboardHandoff.pass()
+                    focusManager.moveFocus(FocusDirection.Down)
+                },
                 onDone = {
                     keyboard?.hide()
+                    typing = false
                     onDone()
                 },
             ),
@@ -408,7 +429,10 @@ internal fun DialTextField(
                 .heightIn(min = 52.dp)
                 .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
                 .then(downFocus?.let { target -> Modifier.focusProperties { down = target } } ?: Modifier)
-                .onFocusChanged { focused = it.isFocused }
+                .onFocusChanged {
+                    focused = it.isFocused
+                    typing = it.isFocused && !readOnly && KeyboardHandoff.take()
+                }
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) {
                         false
@@ -416,9 +440,24 @@ internal fun DialTextField(
                         when (event.key) {
                             Key.DirectionUp -> focusManager.moveFocus(FocusDirection.Up)
                             Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
-                            Key.DirectionCenter -> {
-                                keyboard?.show()
-                                true
+                            Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> when {
+                                readOnly -> true
+                                !typing -> {
+                                    typing = true
+                                    true
+                                }
+                                event.key == Key.DirectionCenter -> {
+                                    keyboard?.show()
+                                    true
+                                }
+                                // Enter from a real keyboard: the field's own action (Next, Done).
+                                else -> false
+                            }
+                            // Back closes the keyboard (the keyboard handles that itself); with it
+                            // already closed, it ends typing and goes on to the screen's Back.
+                            Key.Back -> {
+                                typing = false
+                                false
                             }
                             else -> false
                         }
@@ -454,6 +493,27 @@ internal fun DialTextField(
             },
         )
     }
+}
+
+/**
+ * "Next" on the on-screen keyboard: the field that takes focus straight after carries on typing,
+ * where a field reached with the remote would only be highlighted. Main thread only.
+ */
+internal object KeyboardHandoff {
+    private var passedAt = 0L
+
+    fun pass() {
+        passedAt = SystemClock.uptimeMillis()
+    }
+
+    /** True (once) if typing was passed on a moment ago. */
+    fun take(): Boolean {
+        val passed = SystemClock.uptimeMillis() - passedAt < HANDOFF_WINDOW_MS
+        passedAt = 0L
+        return passed
+    }
+
+    private const val HANDOFF_WINDOW_MS = 600L
 }
 
 /* ---------------------------------------------------------------------------------------------

@@ -7,6 +7,11 @@ name: Fire TV screenshots and crash check
 
 on:
   workflow_dispatch:
+    inputs:
+      apk_run_id:
+        description: "Test the APK from this Fire TV build run (e.g. a branch build) instead of the latest release"
+        required: false
+        default: ""
   # Check every new APK automatically once the Fire TV build has published it.
   workflow_run:
     workflows: [ "Build CHUD STREAMS for Fire TV" ]
@@ -20,6 +25,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: tv-screenshots-${{ github.ref }}
@@ -32,6 +38,7 @@ jobs:
     timeout-minutes: 70
     permissions:
       contents: write
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -41,9 +48,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Download the latest APK
+      - name: Download the APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.inputs.apk_run_id }}
         run: |
-          curl -sSfL -o chud-streams.apk "https://github.com/${{ github.repository }}/releases/latest/download/chud-streams.apk"
+          if [ -n "$RUN_ID" ]; then
+            gh run download "$RUN_ID" --repo "${{ github.repository }}" -n chud-streams-apk -D apk-download
+            cp "$(ls apk-download/*.apk | head -n 1)" chud-streams.apk
+            echo "::notice::Testing the APK from build run $RUN_ID."
+          else
+            curl -sSfL -o chud-streams.apk "https://github.com/${{ github.repository }}/releases/latest/download/chud-streams.apk"
+          fi
           ls -la chud-streams.apk
 
       # A local test Xtream server (testing/mock-server) with a few channels, films, series and
@@ -69,6 +85,12 @@ jobs:
             grep -E "^e: |What went wrong" -A 3 mock-build.log | head -40 | \
               python3 -c "import sys; print('::warning title=Test server build failed::' + sys.stdin.read().replace('%','%25').replace('\n','%0A'))"
             exit 1
+          fi
+          # A short real clip for films and episodes, so playing one is tested too.
+          if command -v ffmpeg >/dev/null; then
+            ffmpeg -loglevel error -f lavfi -i testsrc2=size=1280x720:rate=25 -f lavfi -i sine=frequency=440 \
+              -t 30 -c:v libx264 -pix_fmt yuv420p -profile:v main -c:a aac -movflags +faststart -shortest \
+              "$PWD/sample-film.mp4" && export MOCK_SAMPLE_VIDEO="$PWD/sample-film.mp4"
           fi
           nohup testing/mock-server/build/install/mock-server/bin/mock-server --host 0.0.0.0 --port 8080 \
             > mock-server.log 2>&1 &

@@ -1,6 +1,17 @@
 package com.m3u.tv
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -11,7 +22,6 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,7 +42,9 @@ import androidx.compose.material.icons.rounded.Tv
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +63,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -59,6 +72,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
@@ -95,7 +109,12 @@ import kotlin.math.abs
 @Composable
 fun TvBackdrop(channel: Channel?) {
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    Box(Modifier.fillMaxSize()) {
+    // Its own layer: focus moving over the screens doesn't redraw the picture, grid and scanlines.
+    Box(
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer()
+    ) {
         AsyncImage(
             model = channel?.cover,
             contentDescription = null,
@@ -168,27 +187,48 @@ fun TvBackdrop(channel: Channel?) {
     }
 }
 
+/**
+ * The side menu. Folded it's a column of icons at the screen's edge; as soon as the remote moves
+ * onto it, it slides open over the screen with each entry's name, and folds again when the remote
+ * leaves. The entries scroll only when the one in focus would be cut off (never on every press).
+ * OK opens an entry; coming back to the menu lands on the open one.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TvNavigationRail(
     selected: TvDestination,
-    onSelect: (TvDestination) -> Unit
+    onSelect: (TvDestination) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
+    var expanded by remember { mutableStateOf(false) }
+    val width by animateDpAsState(
+        targetValue = if (expanded) RAIL_EXPANDED_WIDTH else RAIL_COLLAPSED_WIDTH,
+        animationSpec = tween(durationMillis = RAIL_SLIDE_MS, easing = FastOutSlowInEasing),
+        label = "tv-rail-width",
+    )
+    val requesters = remember { TvDestination.entries.associateWith { FocusRequester() } }
     Box(
-        modifier = Modifier
-            .width(112.dp)
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.28f))
+        modifier = modifier
+            .fillMaxHeight()
+            .width(width)
+            .clipToBounds()
+            .background(
+                if (expanded) {
+                    Brush.horizontalGradient(
+                        0f to TvColors.Background.copy(alpha = 0.98f),
+                        0.75f to TvColors.Background.copy(alpha = 0.94f),
+                        1f to TvColors.Background.copy(alpha = 0.82f),
+                    )
+                } else {
+                    Brush.horizontalGradient(
+                        0f to Color.Black.copy(alpha = 0.34f),
+                        1f to Color.Black.copy(alpha = 0.22f),
+                    )
+                }
+            )
+            .onFocusChanged { expanded = it.hasFocus }
     ) {
-        // The logo badge, turning slowly in 3D in the top-left corner. It pauses while the
-        // player or a details page covers the menu.
-        SpinningBrandLogo(
-            spinning = LocalTvFocusEnabled.current,
-            size = 52.dp,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 10.dp)
-        )
-        // Neon edge between the rail and the content, cyan fading into magenta.
+        // Neon edge between the menu and the screen, cyan fading into magenta.
         Box(
             Modifier
                 .align(Alignment.CenterEnd)
@@ -203,26 +243,32 @@ fun TvNavigationRail(
                     )
                 )
         )
-        // Coming back to the rail from a screen lands on the open tab, not the nearest icon.
-        val requesters = remember { TvDestination.entries.associateWith { FocusRequester() } }
-        Column(
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-            // Tabs are centred in the space below the logo; ten of them fit a 540dp-tall
-            // (1080p) screen.
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 68.dp, bottom = 12.dp)
-                .focusRestorer(requesters.getValue(selected))
-        ) {
-            TvDestination.entries.forEach { destination ->
-                RailItem(
-                    destination = destination,
-                    selected = destination == selected,
-                    focusRequester = requesters.getValue(destination),
-                    onClick = { onSelect(destination) }
+        CompositionLocalProvider(LocalBringIntoViewSpec provides RailScrollSpec) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = 10.dp, bottom = 16.dp)
+                    .focusRestorer(requesters.getValue(selected))
+                    .focusGroup()
+            ) {
+                // The logo badge, turning slowly in 3D. It rests while the remote is busy (so
+                // scrolling gets every frame) and while the player or a details page covers it.
+                val remoteBusy by LocalTvRemoteBusy.current
+                SpinningBrandLogo(
+                    spinning = LocalTvFocusEnabled.current && !remoteBusy,
+                    size = 48.dp,
+                    modifier = Modifier.padding(start = 16.dp, bottom = 10.dp)
                 )
-                Spacer(Modifier.height(4.dp))
+                TvDestination.entries.forEach { destination ->
+                    RailItem(
+                        destination = destination,
+                        selected = destination == selected,
+                        focusRequester = requesters.getValue(destination),
+                        onClick = { onSelect(destination) }
+                    )
+                }
             }
         }
     }
@@ -235,31 +281,60 @@ private fun RailItem(
     focusRequester: FocusRequester,
     onClick: () -> Unit
 ) {
+    val label = destination.label()
     FocusFrame(
         onClick = onClick,
         focusRequester = focusRequester,
         selected = selected,
         selectionState = selected,
-        semanticsLabel = destination.label(),
-        shape = RoundedCornerShape(16.dp),
+        semanticsLabel = label,
+        focusedScale = 1f,
+        focusedBorderWidth = 2.dp,
         semanticRole = Role.Tab,
-        modifier = Modifier.size(40.dp)
+        modifier = Modifier
+            .padding(horizontal = RAIL_ITEM_INSET)
+            .fillMaxWidth()
+            .height(RAIL_ITEM_HEIGHT)
     ) { focused ->
-        Icon(
-            imageVector = destination.icon,
-            contentDescription = null,
-            tint = if (selected || focused) TvColors.OnFocus else TvColors.TextSecondary,
+        val active = selected || focused
+        // Laid out at the open menu's width and clipped while folded, so opening the menu only
+        // moves its edge and never re-measures the text.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .align(Alignment.Center)
-                .size(22.dp)
-        )
+                .align(Alignment.CenterStart)
+                .wrapContentWidth(align = Alignment.Start, unbounded = true)
+                .width(RAIL_EXPANDED_WIDTH - RAIL_ITEM_INSET * 2)
+                .padding(start = RAIL_ICON_START)
+        ) {
+            Icon(
+                imageVector = destination.icon,
+                contentDescription = null,
+                tint = if (active) TvColors.OnFocus else TvColors.TextSecondary,
+                modifier = Modifier.size(22.dp)
+            )
+            Text(
+                text = label,
+                color = if (active) TvColors.OnFocus else TvColors.TextPrimary,
+                fontFamily = TvFonts.Body,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }
 
 @Composable
 private fun TvDestination.label(): String = when (this) {
+    TvDestination.Search -> stringResource(R.string.dial_nav_search)
     TvDestination.Home -> stringResource(string.tv_home_title)
-    TvDestination.Library -> stringResource(R.string.dial_nav_browse)
+    TvDestination.Live -> stringResource(R.string.dial_nav_live)
+    TvDestination.Films -> stringResource(R.string.dial_nav_films)
+    TvDestination.Series -> stringResource(R.string.dial_nav_series)
     TvDestination.Guide -> stringResource(R.string.dial_nav_guide)
     TvDestination.Favorites -> stringResource(string.tv_favorites_title)
     TvDestination.MyLibrary -> stringResource(R.string.dial_nav_my_library)
@@ -269,6 +344,37 @@ private fun TvDestination.label(): String = when (this) {
     TvDestination.Account -> stringResource(R.string.dial_nav_account)
     TvDestination.Status -> stringResource(string.tv_settings_title)
 }
+
+/** The menu's width folded; screens start after it. */
+val RAIL_COLLAPSED_WIDTH = 80.dp
+private val RAIL_EXPANDED_WIDTH = 248.dp
+private val RAIL_ITEM_INSET = 12.dp
+private val RAIL_ITEM_HEIGHT = 42.dp
+/** Centres the icon in the folded menu: (80 - 2 x 12 - 22) / 2. */
+private val RAIL_ICON_START = 17.dp
+private const val RAIL_SLIDE_MS = 170
+
+/** Scrolls the menu only as far as needed to show the entry in focus. */
+@OptIn(ExperimentalFoundationApi::class)
+private val RailScrollSpec = object : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val trailing = offset + size
+        return when {
+            offset >= 0f && trailing <= containerSize -> 0f
+            offset < 0f -> offset
+            else -> trailing - containerSize
+        }
+    }
+}
+
+/**
+ * True while the remote is in use (a key pressed in the last few seconds). Decorative motion
+ * waits for idle moments so scrolling keeps the whole frame budget. A state, so only readers
+ * recompose when it flips.
+ */
+val LocalTvRemoteBusy = staticCompositionLocalOf<State<Boolean>> { NeverBusy }
+
+private val NeverBusy: State<Boolean> = mutableStateOf(false)
 
 /**
  * Dial: false while a full-screen overlay (player, details page) covers the browse screen, so the
@@ -312,12 +418,16 @@ fun FocusFrame(
     onLongClick: (() -> Unit)? = null,
     /** No fill, only the focus ring (for frames over video). */
     transparent: Boolean = false,
+    /** The fill while focused; pictures that don't cover the frame (logos) want a dark one. */
+    focusedFill: Color = TvColors.Focus,
     content: @Composable BoxScope.(focused: Boolean) -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
     val focusAllowed = LocalTvFocusEnabled.current
+    // A short, even grow: quick enough to keep up with a held-down arrow key.
     val scale by animateFloatAsState(
         targetValue = if (focused && enabled) focusedScale else 1f,
+        animationSpec = tween(durationMillis = FOCUS_SCALE_MS, easing = FastOutSlowInEasing),
         label = "tv-focus-scale"
     )
     // Cyberpunk HUD look: every focusable surface gets two chamfered corners instead of the
@@ -338,7 +448,7 @@ fun FocusFrame(
             .background(
                 when {
                     transparent -> Color.Transparent
-                    focused && enabled -> TvColors.Focus
+                    focused && enabled -> focusedFill
                     selected && enabled -> TvColors.Focus.copy(alpha = 0.72f)
                     else -> TvColors.Surface.copy(alpha = 0.86f)
                 }
@@ -810,11 +920,17 @@ fun PosterArt(
 ) {
     // Posters fill the frame; logos and wide pictures are shown whole, never cut off.
     var shape by remember(model) { mutableStateOf(ArtShape.Unknown) }
-    BoxWithConstraints(
+    // The frame's shape, noted at layout time (a plain holder: reading it never recomposes, which
+    // keeps long grids of these light to scroll).
+    val frame = remember { FrameShape() }
+    Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.background(TvColors.SurfaceRaised)
+        modifier = modifier
+            .background(TvColors.SurfaceRaised)
+            .onSizeChanged { size ->
+                if (size.height > 0) frame.ratio = size.width.toFloat() / size.height
+            }
     ) {
-        val frameRatio = if (maxHeight.value > 0f) maxWidth.value / maxHeight.value else 1f
         AsyncImage(
             model = model,
             contentDescription = null,
@@ -825,6 +941,7 @@ fun PosterArt(
                 val ratio = if (drawable.intrinsicHeight > 0) {
                     drawable.intrinsicWidth.toFloat() / drawable.intrinsicHeight
                 } else 0f
+                val frameRatio = frame.ratio
                 shape = if (ratio > 0f && abs(ratio - frameRatio) > LOGO_RATIO_TOLERANCE * frameRatio) {
                     ArtShape.Logo
                 } else {
@@ -847,6 +964,12 @@ fun PosterArt(
 }
 
 private enum class ArtShape { Unknown, Poster, Logo }
+
+private class FrameShape {
+    var ratio: Float = 1f
+}
+
+private const val FOCUS_SCALE_MS = 130
 
 /** A picture more than this far from the frame's shape is treated as a logo and shown whole. */
 private const val LOGO_RATIO_TOLERANCE = 0.35f
