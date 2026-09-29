@@ -62,6 +62,11 @@ enum TourRunner {
     // MARK: The walk
 
     private static func run(_ model: AppModel) async {
+        // GitHub's Macs are virtual machines with no hardware video decoder.
+        var settings = PlaybackSettings.current
+        settings.hardwareDecoding = false
+        settings.renderer = .standard
+        settings.save()
         let window = await waitForWindow()
         window?.setFrame(NSRect(x: 40, y: 40, width: 1440, height: 900), display: true)
         await wait(1)

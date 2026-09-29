@@ -169,6 +169,8 @@ struct PlaybackSettings: Codable, Equatable {
         var options: [(String, String)] = [
             ("vo", renderer.usesMetal && !forTile ? "gpu-next" : "libmpv"),
             ("hwdec", hardwareDecoding ? "auto-safe" : "no"),
+            // If the hardware decoder gives up on a stream, switch to software straight away.
+            ("vd-lavc-software-fallback", "yes"),
             ("keep-open", "yes"),
             ("idle", "yes"),
             ("terminal", "no"),
