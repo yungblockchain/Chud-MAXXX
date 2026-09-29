@@ -1,0 +1,74 @@
+# Runs the latest CHUD STREAMS Fire TV APK on Android TV emulators, clicks through the main
+# screens, and publishes screenshots plus crash logs on the "screenshots" pre-release:
+#   https://github.com/<owner>/<repo>/releases/tag/screenshots
+# API 28 matches Fire OS 7 (Fire TV Stick 4K Max, 1st gen); API 30 matches Fire OS 8 (2nd gen).
+
+name: Fire TV screenshots and crash check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main", "master" ]
+    paths:
+      - ".github/workflows/tv-screenshots.yml"
+      - ".github/scripts/tv-screenshots.sh"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv-screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [ 28, 30 ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download the latest APK
+        run: |
+          curl -sSfL -o chud-streams.apk "https://github.com/${{ github.repository }}/releases/latest/download/chud-streams.apk"
+          ls -la chud-streams.apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run on an Android TV emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: android-tv
+          arch: x86
+          profile: tv_1080p
+          ram-size: 2048M
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          script: bash .github/scripts/tv-screenshots.sh out ${{ matrix.api-level }}
+
+      - name: Publish screenshots and logs
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          ls -la out || exit 0
+          gh release view screenshots --repo "$REPO" >/dev/null 2>&1 || \
+            gh release create screenshots --repo "$REPO" --target "${{ github.sha }}" \
+              --title "CHUD STREAMS screenshots" \
+              --notes "Screenshots and logs from the Fire TV app running on Android TV emulators (API 28 = Fire OS 7, API 30 = Fire OS 8)." \
+              --prerelease --latest=false || true
+          sleep 5
+          gh release upload screenshots out/* --repo "$REPO" --clobber
