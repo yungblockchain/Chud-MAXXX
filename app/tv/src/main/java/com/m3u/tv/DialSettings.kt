@@ -43,8 +43,15 @@ data class DialPreferences(
     val player: DialPlayer = DialPlayer.BuiltIn,
     /** On the main menu, Back twice in a row closes the app completely (frees its memory). */
     val backTwiceToExit: Boolean = true,
+    /** Subtitle text size, as a percentage of the normal size. */
+    val subtitleSizePercent: Int = 100,
+    /** Films and series: start the next episode a few seconds after one ends. */
+    val autoplayNextEpisode: Boolean = true,
+    /** Menus at the fastest refresh rate the Fire TV offers (120 Hz where it lists 120 Hz). */
+    val fastMenus: Boolean = true,
 ) {
     companion object {
+        val SUBTITLE_SIZE_OPTIONS = listOf(75, 100, 125, 150, 200)
         val CONTROLS_TIMEOUT_OPTIONS = listOf(3, 5, 8, 12)
         val SKIP_BACK_OPTIONS = listOf(5, 10, 15, 30)
         val SKIP_AHEAD_OPTIONS = listOf(10, 30, 60, 120)
@@ -110,6 +117,9 @@ class DialSettingsStore @Inject constructor(
             .putBoolean(KEY_MATCH_FRAME_RATE, next.matchFrameRate)
             .putString(KEY_PLAYER, next.player.name)
             .putBoolean(KEY_BACK_TWICE_TO_EXIT, next.backTwiceToExit)
+            .putInt(KEY_SUBTITLE_SIZE, next.subtitleSizePercent)
+            .putBoolean(KEY_AUTOPLAY_NEXT, next.autoplayNextEpisode)
+            .putBoolean(KEY_FAST_MENUS, next.fastMenus)
             .apply()
     }
 
@@ -195,6 +205,9 @@ class DialSettingsStore @Inject constructor(
                 ?.let { name -> DialPlayer.entries.firstOrNull { it.name == name } }
                 ?: defaults.player,
             backTwiceToExit = prefs.getBoolean(KEY_BACK_TWICE_TO_EXIT, defaults.backTwiceToExit),
+            subtitleSizePercent = prefs.getInt(KEY_SUBTITLE_SIZE, defaults.subtitleSizePercent),
+            autoplayNextEpisode = prefs.getBoolean(KEY_AUTOPLAY_NEXT, defaults.autoplayNextEpisode),
+            fastMenus = prefs.getBoolean(KEY_FAST_MENUS, defaults.fastMenus),
         )
     }
 
@@ -219,6 +232,9 @@ class DialSettingsStore @Inject constructor(
         const val KEY_MATCH_FRAME_RATE = "match_frame_rate"
         const val KEY_PLAYER = "player"
         const val KEY_BACK_TWICE_TO_EXIT = "back_twice_to_exit"
+        const val KEY_SUBTITLE_SIZE = "subtitle_size"
+        const val KEY_AUTOPLAY_NEXT = "autoplay_next_episode"
+        const val KEY_FAST_MENUS = "fast_menus"
         const val KEY_LAST_CHANNEL = "last_channel"
         const val KEY_HISTORY = "on_demand_history"
         const val KEY_WATCHLIST = "markets_watchlist"

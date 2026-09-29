@@ -63,6 +63,12 @@ interface PlayerManager {
 
     suspend fun recordVideo(uri: Uri)
 
+    /**
+     * Adds a subtitle file (for example one downloaded from OpenSubtitles) to what's playing,
+     * keeps the position, and switches it on.
+     */
+    fun addSubtitle(uri: Uri, mimeType: String, language: String?, label: String)
+
     val cwPosition: SharedFlow<Long>
     suspend fun onResetPlayback(channelUrl: String)
     suspend fun getCwPosition(channelUrl: String): Long

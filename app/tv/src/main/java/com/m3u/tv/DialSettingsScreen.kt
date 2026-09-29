@@ -1,5 +1,6 @@
 package com.m3u.tv
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,9 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Extension
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -23,6 +21,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -35,36 +35,41 @@ import androidx.tv.material3.Text
  * The settings destination has two tabs: these, and upstream's sources/extensions screen.
  */
 
+/** One tab of the settings destination. */
+class SettingsTab(
+    val label: String,
+    val icon: ImageVector,
+    val content: @Composable () -> Unit,
+)
+
 @Composable
-fun DialSettingsPane(
-    dialContent: @Composable () -> Unit,
-    sourcesContent: @Composable () -> Unit,
-) {
+fun DialSettingsPane(tabs: List<SettingsTab>) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.padding(start = 48.dp, top = 32.dp, end = 48.dp)
         ) {
-            TvActionButton(
-                text = stringResource(R.string.dial_settings_tab_dial),
-                icon = Icons.Rounded.Tune,
-                selected = tab == 0,
-                onClick = { tab = 0 },
-            )
-            TvActionButton(
-                text = stringResource(R.string.dial_settings_tab_sources),
-                icon = Icons.Rounded.Extension,
-                selected = tab == 1,
-                onClick = { tab = 1 },
-            )
+            tabs.forEachIndexed { index, item ->
+                TvActionButton(
+                    text = item.label,
+                    icon = item.icon,
+                    selected = tab == index,
+                    onClick = { tab = index },
+                )
+            }
         }
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
         ) {
-            if (tab == 0) dialContent() else sourcesContent()
+            Crossfade(
+                targetState = tab.coerceIn(0, (tabs.size - 1).coerceAtLeast(0)),
+                label = "settings-tab",
+            ) { index ->
+                tabs.getOrNull(index)?.content?.invoke()
+            }
         }
     }
 }
@@ -259,7 +264,7 @@ fun DialSettingsScreen(
 }
 
 @Composable
-private fun SettingsSection(title: String) {
+internal fun SettingsSection(title: String) {
     Text(
         text = title,
         color = TvColors.TextMuted,
@@ -271,13 +276,15 @@ private fun SettingsSection(title: String) {
 }
 
 @Composable
-private fun SettingRow(
+internal fun SettingRow(
     label: String,
     value: String,
     onClick: () -> Unit,
+    onKey: (KeyEvent) -> Boolean = { false },
 ) {
     FocusFrame(
         onClick = onClick,
+        onKey = onKey,
         shape = RoundedCornerShape(12.dp),
         focusedScale = 1.02f,
         semanticsLabel = "$label: $value",

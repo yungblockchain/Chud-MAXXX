@@ -33,6 +33,14 @@ import kotlinx.coroutines.sync.withPermit
 
 enum class DetailsKind { Film, Series }
 
+/** A film or episode playing in the built-in player. */
+@Immutable
+data class OnDemandPlayback(
+    val subtitleTarget: SubtitleTarget,
+    val series: Channel? = null,
+    val episode: SeriesEpisode? = null,
+)
+
 @Immutable
 data class DetailsState(
     val channel: Channel,
@@ -91,6 +99,10 @@ class DialViewModel @Inject constructor(
     /** Short notices (string resources) shown as a toast. */
     private val _messages = MutableSharedFlow<Int>(extraBufferCapacity = 4)
     val messages: SharedFlow<Int> = _messages.asSharedFlow()
+
+    /** The film or episode in the built-in player, for subtitle searches and "Up next". */
+    private val _nowPlaying = MutableStateFlow<OnDemandPlayback?>(null)
+    val nowPlaying: StateFlow<OnDemandPlayback?> = _nowPlaying.asStateFlow()
 
     private var detailsJob: Job? = null
     private var scheduleJob: Job? = null
@@ -272,6 +284,14 @@ class DialViewModel @Inject constructor(
                 return@launch
             }
             if (fromStart) playerManager.onResetPlayback(channel.url)
+            val film = _details.value?.takeIf { it.channel.id == channel.id }?.film
+            _nowPlaying.value = OnDemandPlayback(
+                subtitleTarget = SubtitleTarget(
+                    title = film?.title ?: channel.title,
+                    year = film?.year ?: OpenSubtitles.yearIn(channel.title),
+                    tmdbId = film?.tmdbId,
+                ),
+            )
             playerManager.play(MediaCommand.Common(channel.id), applyContinueWatching = resume)
         }
     }
@@ -304,6 +324,18 @@ class DialViewModel @Inject constructor(
                 return@launch
             }
             if (fromStart) playerManager.onResetPlayback(series.copyXtreamEpisode(info).url)
+            val details = _details.value?.takeIf { it.channel.id == series.id }?.series
+            _nowPlaying.value = OnDemandPlayback(
+                subtitleTarget = SubtitleTarget(
+                    title = details?.title ?: series.title,
+                    year = details?.year,
+                    parentTmdbId = details?.tmdbId,
+                    season = episode.season.toIntOrNull(),
+                    episode = episode.episodeNum?.toIntOrNull(),
+                ),
+                series = series,
+                episode = episode,
+            )
             playerManager.play(MediaCommand.XtreamEpisode(series.id, info), applyContinueWatching = resume)
         }
     }
@@ -470,7 +502,29 @@ class DialViewModel @Inject constructor(
         }
     }
 
+    /** Live TV and catch-up aren't films or episodes. */
+    fun clearNowPlaying() {
+        _nowPlaying.value = null
+    }
+
+    /**
+     * The episode after the one playing: next in its season, else the first of the next season.
+     * Needs the series page to have loaded its seasons (it has, if the episode was started there).
+     */
+    fun nextEpisode(): Pair<Channel, SeriesEpisode>? {
+        val playing = _nowPlaying.value ?: return null
+        val series = playing.series ?: return null
+        val current = playing.episode ?: return null
+        val seasons = _details.value?.takeIf { it.channel.id == series.id }?.series?.seasons
+            ?: return null
+        val all = seasons.flatMap { it.episodes }
+        val index = all.indexOfFirst { it.id == current.id }
+        if (index < 0) return null
+        return all.getOrNull(index + 1)?.let { series to it }
+    }
+
     fun playCatchUp(channel: Channel, programme: GuideProgramme, external: Boolean = false) {
+        _nowPlaying.value = null
         viewModelScope.launch {
             val credentials = credentialsFor(channel.playlistUrl) ?: return@launch
             val streamId = XtreamCatalog.idFromUrl(channel.url) ?: return@launch

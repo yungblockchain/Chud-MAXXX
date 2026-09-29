@@ -34,6 +34,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Extension
@@ -158,6 +161,8 @@ fun TvBrowsePane(
     guideContent: @Composable () -> Unit = {},
     claudeContent: @Composable () -> Unit = {},
     dialSettingsContent: @Composable () -> Unit = {},
+    playbackSettingsContent: @Composable () -> Unit = {},
+    servicesSettingsContent: @Composable () -> Unit = {},
 ) {
     Box(
         modifier = Modifier
@@ -212,8 +217,26 @@ fun TvBrowsePane(
                 TvDestination.Account -> XtreamAccountScreen()
 
                 TvDestination.Status -> DialSettingsPane(
-                    dialContent = dialSettingsContent,
-                    sourcesContent = {
+                    tabs = listOf(
+                        SettingsTab(
+                            label = stringResource(R.string.dial_settings_tab_dial),
+                            icon = Icons.Rounded.Tune,
+                            content = dialSettingsContent,
+                        ),
+                        SettingsTab(
+                            label = stringResource(R.string.dial_settings_tab_playback),
+                            icon = Icons.Rounded.PlayCircle,
+                            content = playbackSettingsContent,
+                        ),
+                        SettingsTab(
+                            label = stringResource(R.string.dial_settings_tab_services),
+                            icon = Icons.Rounded.Key,
+                            content = servicesSettingsContent,
+                        ),
+                        SettingsTab(
+                            label = stringResource(R.string.dial_settings_tab_sources),
+                            icon = Icons.Rounded.Extension,
+                            content = {
                         StatusScreen(
                             state = state,
                             onExternalExtensionsEnabled = onExternalExtensionsEnabled,
@@ -235,7 +258,9 @@ fun TvBrowsePane(
                             onUpdateProviderSetting = onUpdateProviderSetting,
                             onSubmitProviderSubscription = onSubmitProviderSubscription,
                         )
-                    },
+                            },
+                        ),
+                    ),
                 )
             }
         }

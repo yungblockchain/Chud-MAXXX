@@ -186,6 +186,14 @@ private val PREFERENCES: Map<Preferences.Key<*>, Any> = buildMap {
     put(PreferencesKeys.PLAYER_PANEL, true)
     put(PreferencesKeys.COMPACT_DIMENSION, false)
     put(PreferencesKeys.EXTERNAL_EXTENSIONS, false)
+    put(PreferencesKeys.DOLBY_VISION_AS_HDR10, false)
+    put(PreferencesKeys.AUDIO_PASSTHROUGH, true)
+    put(PreferencesKeys.PREFER_SOFTWARE_DECODER, false)
+    put(PreferencesKeys.BUFFER_PROFILE, BufferProfile.BALANCED)
+    put(PreferencesKeys.SUBTITLE_MODE, SubtitleMode.FORCED_ONLY)
+    put(PreferencesKeys.STYLED_SUBTITLES, true)
+    put(PreferencesKeys.AUDIO_DELAY_MS, 0)
+    put(PreferencesKeys.SUBTITLE_DELAY_MS, 0)
 }
 
 suspend fun Settings.applyDefaultValues() {
@@ -244,4 +252,40 @@ object PreferencesKeys {
 
     val COMPACT_DIMENSION = booleanPreferencesKey("compact-dimension")
     val EXTERNAL_EXTENSIONS = booleanPreferencesKey("external-extensions")
+
+    // Playback (TV "Playback" settings).
+    /** Play Dolby Vision through its HDR10/HLG base layer instead of the Dolby Vision decoder. */
+    val DOLBY_VISION_AS_HDR10 = booleanPreferencesKey("dolby-vision-as-hdr10")
+    /** Send Dolby Digital / DTS untouched to the TV or soundbar (off: decode to PCM). */
+    val AUDIO_PASSTHROUGH = booleanPreferencesKey("audio-passthrough")
+    /** Try the FFmpeg software decoders before the device's hardware ones. */
+    val PREFER_SOFTWARE_DECODER = booleanPreferencesKey("prefer-software-decoder")
+    /** [BufferProfile]. */
+    val BUFFER_PROFILE = intPreferencesKey("buffer-profile")
+    /** [SubtitleMode]. */
+    val SUBTITLE_MODE = intPreferencesKey("subtitle-mode")
+    /** Render ASS/SSA subtitles with libass (styles, fonts and positions). */
+    val STYLED_SUBTITLES = booleanPreferencesKey("styled-subtitles")
+    /** Positive: sound later than the picture. */
+    val AUDIO_DELAY_MS = intPreferencesKey("audio-delay-ms")
+    /** Positive: subtitles later than the picture. */
+    val SUBTITLE_DELAY_MS = intPreferencesKey("subtitle-delay-ms")
+}
+
+/** How much of a stream the player loads ahead. */
+object BufferProfile {
+    /** Starts fastest; less protection against a shaky connection. */
+    const val FAST_START = 0
+    const val BALANCED = 1
+    /** Loads the most ahead; slower to start, rides out network drops. */
+    const val LARGE = 2
+}
+
+/** Which subtitles turn on by themselves. */
+object SubtitleMode {
+    const val OFF = 0
+    /** Only "forced" tracks (foreign-language lines, signs). */
+    const val FORCED_ONLY = 1
+    /** Subtitles in the device language whenever there are some. */
+    const val ALWAYS = 2
 }

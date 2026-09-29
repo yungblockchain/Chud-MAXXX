@@ -57,6 +57,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.Player
 import androidx.tv.material3.Text
 import com.m3u.data.database.model.Channel
 import com.m3u.data.database.model.isSeries
@@ -131,6 +132,7 @@ fun App(
     val preferences by dial.preferences.collectAsStateWithLifecycle()
     val details by dial.details.collectAsStateWithLifecycle()
     val continueWatching by dial.continueWatching.collectAsStateWithLifecycle()
+    val nowPlaying by dial.nowPlaying.collectAsStateWithLifecycle()
 
     // What's playing, and whether up/down should flip channels. Flipping walks the list the channel
     // was opened from: the selected playlist if it's in there, otherwise favourites.
@@ -214,7 +216,24 @@ fun App(
     }
     LaunchedEffect(playingId, live, playingPlaylist != null) {
         if (playingId != null && live && playingPlaylist != null) dial.rememberLastChannel(playingId)
+        if (live || catchUp) dial.clearNowPlaying()
     }
+
+    // Menus at the fastest refresh rate the Fire TV offers at this resolution.
+    LaunchedEffect(preferences.fastMenus, surface) {
+        if (surface == TvSurface.Browse) {
+            view.context.findActivity()?.let { DisplayModes.applyMenuMode(it, preferences.fastMenus) }
+        }
+    }
+
+    // Up next: when an episode finishes, the following one starts after a short countdown.
+    val upNext = if (
+        surface == TvSurface.Player &&
+        playbackState == Player.STATE_ENDED &&
+        preferences.autoplayNextEpisode
+    ) {
+        remember(playingId, nowPlaying) { dial.nextEpisode() }
+    } else null
     LaunchedEffect(surface) {
         if (surface == TvSurface.Browse) dial.refreshAfterPlayback()
     }
@@ -379,6 +398,15 @@ fun App(
                     claudeContent = {
                         ClaudeScreen(onPlay = openOrPlay)
                     },
+                    playbackSettingsContent = {
+                        PlaybackSettingsScreen(
+                            preferences = preferences,
+                            onUpdate = dial::updatePreferences,
+                        )
+                    },
+                    servicesSettingsContent = {
+                        ServicesSettingsScreen()
+                    },
                     dialSettingsContent = {
                         DialSettingsScreen(
                             preferences = preferences,
@@ -443,12 +471,24 @@ fun App(
                 reconnecting = reconnecting,
                 failed = playbackFailed,
                 preferences = preferences,
+                subtitleTarget = nowPlaying?.subtitleTarget,
+                onUpdatePreferences = dial::updatePreferences,
                 onPlayPause = { viewModel.pauseOrContinue(!isPlaying) },
                 onNextChannel = { zap(1) },
                 onPreviousChannel = { zap(-1) },
                 onToggleFavourite = { currentChannel?.let(viewModel::toggleFavorite) },
                 onBack = closePlayer,
                 onClose = closePlayer
+            )
+        }
+
+        upNext?.let { (series, episode) ->
+            UpNextCard(
+                episode = episode,
+                onPlay = { dial.playEpisode(series, episode, fromStart = true) },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 48.dp, bottom = 48.dp),
             )
         }
 

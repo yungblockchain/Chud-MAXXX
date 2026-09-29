@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -116,6 +119,8 @@ fun TvPlayerScreen(
     reconnecting: Boolean,
     failed: Boolean,
     preferences: DialPreferences,
+    subtitleTarget: SubtitleTarget?,
+    onUpdatePreferences: ((DialPreferences) -> DialPreferences) -> Unit,
     onPlayPause: () -> Unit,
     onNextChannel: () -> Unit,
     onPreviousChannel: () -> Unit,
@@ -125,6 +130,9 @@ fun TvPlayerScreen(
 ) {
     val view = LocalView.current
     val playPauseFocusRequester = remember { FocusRequester() }
+    val optionsFocusRequester = remember { FocusRequester() }
+    var optionsOpen by remember { mutableStateOf(false) }
+    var restoreOptionsFocus by remember { mutableStateOf(false) }
     val currentOnClose by rememberUpdatedState(onClose)
 
     var controlsVisible by remember { mutableStateOf(true) }
@@ -178,8 +186,15 @@ fun TvPlayerScreen(
     }
 
     // Auto-hide, but never while paused: a paused picture with no controls looks frozen.
-    LaunchedEffect(controlsVisible, interaction, isPlaying) {
-        if (controlsVisible && isPlaying) {
+    LaunchedEffect(restoreOptionsFocus) {
+        if (!restoreOptionsFocus) return@LaunchedEffect
+        yield()
+        runCatching { optionsFocusRequester.requestFocus() }
+        restoreOptionsFocus = false
+    }
+
+    LaunchedEffect(controlsVisible, interaction, isPlaying, optionsOpen) {
+        if (controlsVisible && isPlaying && !optionsOpen) {
             delay(controlsTimeoutMs)
             controlsVisible = false
         }
@@ -215,12 +230,12 @@ fun TvPlayerScreen(
     // Auto frame rate (TiviMate's "AFR"): switch the TV to a refresh rate that is a whole multiple
     // of the video's frame rate, so 24/25/30 fps content plays without judder. The TV blanks for
     // a moment when it switches, which is why this is off by default.
+    val currentFastMenus by rememberUpdatedState(preferences.fastMenus)
     LaunchedEffect(activity, videoFrameRate, preferences.matchFrameRate) {
         val host = activity ?: return@LaunchedEffect
         val window = host.window ?: return@LaunchedEffect
-        val modeId = if (preferences.matchFrameRate && videoFrameRate > 0f) {
-            bestDisplayModeFor(host, videoFrameRate)
-        } else 0
+        if (!preferences.matchFrameRate || videoFrameRate <= 0f) return@LaunchedEffect
+        val modeId = bestDisplayModeFor(host, videoFrameRate)
         val params = window.attributes
         if (params.preferredDisplayModeId != modeId) {
             params.preferredDisplayModeId = modeId
@@ -229,12 +244,8 @@ fun TvPlayerScreen(
     }
     DisposableEffect(activity) {
         onDispose {
-            val window = activity?.window ?: return@onDispose
-            val params = window.attributes
-            if (params.preferredDisplayModeId != 0) {
-                params.preferredDisplayModeId = 0
-                window.attributes = params
-            }
+            // Back to the menus' refresh rate.
+            activity?.let { DisplayModes.applyMenuMode(it, currentFastMenus) }
         }
     }
 
@@ -289,7 +300,16 @@ fun TvPlayerScreen(
                     swallowedKey = null
                     return@onPreviewKeyEvent true
                 }
+                // The options panel moves with the arrows like any list.
+                if (optionsOpen) return@onPreviewKeyEvent false
                 when {
+                    key == Key.Menu -> {
+                        if (firstPress) {
+                            showControls()
+                            optionsOpen = true
+                        }
+                        true
+                    }
                     canZap && key in CHANNEL_UP_KEYS -> {
                         if (firstPress) onChannelUpKey()
                         true
@@ -367,6 +387,11 @@ fun TvPlayerScreen(
                     modifier = surfaceModifier
                 )
             }
+            SubtitleLayer(
+                player = player,
+                sizePercent = preferences.subtitleSizePercent,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         // With the controls open, the same state shows under the channel name instead.
@@ -487,6 +512,15 @@ fun TvPlayerScreen(
                             },
                         )
                     }
+                    TvIconActionButton(
+                        icon = Icons.Rounded.Tune,
+                        contentDescription = stringResource(R.string.dial_options_title),
+                        onClick = {
+                            optionsOpen = true
+                            showControls()
+                        },
+                        focusRequester = optionsFocusRequester,
+                    )
                     TvActionButton(
                         text = stringResource(R.string.dial_player_sleep),
                         icon = Icons.Rounded.Bedtime,
@@ -523,6 +557,25 @@ fun TvPlayerScreen(
                     )
                 }
             }
+        }
+
+        AnimatedVisibility(
+            visible = optionsOpen,
+            enter = slideInHorizontally { it } + fadeIn(),
+            exit = slideOutHorizontally { it } + fadeOut(),
+            modifier = Modifier.align(Alignment.CenterEnd),
+        ) {
+            PlayerOptionsPanel(
+                live = live,
+                subtitleTarget = subtitleTarget,
+                preferences = preferences,
+                onUpdatePreferences = onUpdatePreferences,
+                onClose = {
+                    optionsOpen = false
+                    restoreOptionsFocus = true
+                    showControls()
+                },
+            )
         }
     }
 }

@@ -22,7 +22,6 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.rtmp.RtmpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.MediaExtractorCompat
-import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
 import androidx.media3.exoplayer.drm.FrameworkMediaDrm
 import androidx.media3.exoplayer.drm.HttpMediaDrmCallback
@@ -104,6 +103,14 @@ import java.io.FileOutputStream
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.seconds
+import io.github.peerless2012.ass.media.type.AssRenderType
+import io.github.peerless2012.ass.media.parser.AssSubtitleParserFactory
+import io.github.peerless2012.ass.media.kt.withAssSupport
+import io.github.peerless2012.ass.media.kt.withAssMkvSupport
+import io.github.peerless2012.ass.media.AssHandler
+import com.m3u.core.foundation.architecture.preferences.flowOf as settingFlowOf
+import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.datasource.DefaultDataSource
 
 class PlayerManagerImpl @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -206,6 +213,12 @@ class PlayerManagerImpl @Inject constructor(
     // While the app is out of sight: whether the stream was set to play when it was stopped.
     private var sleepingPlayWhenReady: Boolean? = null
 
+    // Audio/subtitle sync, changed from the player while something plays.
+    private val playbackSync = PlaybackSync()
+    private var activeAssHandler: AssHandler? = null
+    private var activeMediaItem: MediaItem? = null
+    private var activeSourceBuilder: ((MediaItem) -> MediaSource)? = null
+
     private val playbackPosition = MutableStateFlow(-1L)
     private val playbackStateEvent = MutableStateFlow(
         PlaybackStateEvent(
@@ -232,6 +245,16 @@ class PlayerManagerImpl @Inject constructor(
                 ensureActive()
                 playbackPosition.value = player.value?.currentPosition ?: -1L
                 delay(1.seconds)
+            }
+        }
+        ioCoroutineScope.launch {
+            settings.settingFlowOf(PreferencesKeys.AUDIO_DELAY_MS).collect { ms ->
+                playbackSync.audioDelayUs = ms * 1_000L
+            }
+        }
+        ioCoroutineScope.launch {
+            settings.settingFlowOf(PreferencesKeys.SUBTITLE_DELAY_MS).collect { ms ->
+                playbackSync.subtitleDelayUs = ms * 1_000L
             }
         }
     }
@@ -373,7 +396,8 @@ class PlayerManagerImpl @Inject constructor(
     ) {
         if (!providerSessionState.isCurrent(generation)) return
         val rtmp: Boolean = Url(url).protocol.name == "rtmp"
-        val tunneling = settings[PreferencesKeys.TUNNELING]
+        val options = readPlaybackOptions()
+        if (!providerSessionState.isCurrent(generation)) return
 
         val mimeType = when (val chain = chain) {
             is MimetypeChain.Remembered -> chain.mimeType
@@ -413,9 +437,22 @@ class PlayerManagerImpl @Inject constructor(
         }
         // Both flags (a bitwise "and" of two different flags was 0, which turned both off):
         // live IPTV .ts streams often start between keyframes or lack access-unit markers.
-        val extractorsFactory = DefaultExtractorsFactory().setTsExtractorFlags(
+        val baseExtractorsFactory = DefaultExtractorsFactory().setTsExtractorFlags(
             FLAG_ALLOW_NON_IDR_KEYFRAMES or FLAG_DETECT_ACCESS_UNITS
         )
+        // Styled ASS/SSA subtitles through libass. A player keeps the handler it was built with.
+        val assHandler = when {
+            player.value != null -> activeAssHandler
+            options.styledSubtitles -> AssHandler(AssRenderType.CUES)
+            else -> null
+        }
+        val subtitleParserFactory = assHandler?.let(::AssSubtitleParserFactory)
+        val extractorsFactory: ExtractorsFactory =
+            if (assHandler != null && subtitleParserFactory != null) {
+                baseExtractorsFactory.withAssMkvSupport(subtitleParserFactory, assHandler)
+            } else {
+                baseExtractorsFactory
+            }
         val mediaExtractor = MediaExtractorCompat(extractorsFactory, dataSourceFactory)
         val mediaSourceFactory = when (mimeType) {
             MimeTypes.APPLICATION_M3U8 -> HlsMediaSource.Factory(dataSourceFactory)
@@ -434,6 +471,7 @@ class PlayerManagerImpl @Inject constructor(
 
             else -> DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
         }
+        subtitleParserFactory?.let(mediaSourceFactory::setSubtitleParserFactory)
         timber.d("media-source-factory: ${mediaSourceFactory::class.qualifiedName}")
         if (licenseType.isNotEmpty()) {
             val drmCallback = when {
@@ -473,8 +511,19 @@ class PlayerManagerImpl @Inject constructor(
             mediaSourceFactory = mediaSourceFactory,
             mediaSource = mediaSource,
             mediaExtractor = mediaExtractor,
-            tunneling = tunneling,
+            options = options,
+            assHandler = assHandler,
         ) ?: return
+        // For adding a subtitle file later: the same item and loaders, plus local files.
+        activeMediaItem = mediaItem.buildUpon().setMimeType(mimeType).build()
+        activeSourceBuilder = { item ->
+            DefaultMediaSourceFactory(
+                DefaultDataSource.Factory(context, dataSourceFactory),
+                extractorsFactory,
+            )
+                .apply { subtitleParserFactory?.let { setSubtitleParserFactory(it) } }
+                .createMediaSource(item)
+        }
         mainCoroutineScope.launch {
             if (!providerSessionState.isCurrent(generation)) return@launch
             if (applyContinueWatching) {
@@ -605,6 +654,9 @@ class PlayerManagerImpl @Inject constructor(
         synchronized(playerLifecycleLock) {
             cancelReconnect()
             sleepingPlayWhenReady = null
+            activeAssHandler = null
+            activeMediaItem = null
+            activeSourceBuilder = null
             extractor = null
             activeRequestHeaders = emptyMap()
             activeProviderPlayback = false
@@ -703,15 +755,22 @@ class PlayerManagerImpl @Inject constructor(
 
     private fun createPlayer(
         mediaSourceFactory: MediaSource.Factory,
-        tunneling: Boolean,
+        options: PlaybackOptions,
+        assHandler: AssHandler?,
         listener: Player.Listener,
     ): ExoPlayer = ExoPlayer.Builder(context)
         .setMediaSourceFactory(mediaSourceFactory)
-        .setRenderersFactory(renderersFactory)
-        .setTrackSelector(createTrackSelector(tunneling))
+        .setRenderersFactory(
+            PlaybackRenderersFactory(context, options, playbackSync).let { renderers ->
+                assHandler?.let(renderers::withAssSupport) ?: renderers
+            }
+        )
+        .setTrackSelector(createTrackSelector(options))
+        .setLoadControl(createLoadControl(options.bufferProfile))
         .setHandleAudioBecomingNoisy(true)
         .build()
         .apply {
+            assHandler?.init(this)
             val attributes = AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
@@ -726,7 +785,8 @@ class PlayerManagerImpl @Inject constructor(
         mediaSourceFactory: MediaSource.Factory,
         mediaSource: MediaSource,
         mediaExtractor: MediaExtractorCompat,
-        tunneling: Boolean,
+        options: PlaybackOptions,
+        assHandler: AssHandler?,
     ): ExoPlayer? {
         var result: ExoPlayer? = null
         providerSessionState.runIfCurrent(generation) {
@@ -735,10 +795,12 @@ class PlayerManagerImpl @Inject constructor(
                     val listener = createPlayerListener(generation)
                     createPlayer(
                         mediaSourceFactory = mediaSourceFactory,
-                        tunneling = tunneling,
+                        options = options,
+                        assHandler = assHandler,
                         listener = listener,
                     ).also { createdPlayer ->
                         timber.d("player instance updated")
+                        activeAssHandler = assHandler
                         activePlayerListener = listener
                         activePlayerGeneration = generation
                         player.value = createdPlayer
@@ -778,18 +840,52 @@ class PlayerManagerImpl @Inject constructor(
             }
         }
 
-    private val renderersFactory: RenderersFactory by lazy {
-        Codecs.createRenderersFactory(context)
-    }
-
-    private fun createTrackSelector(tunneling: Boolean): TrackSelector {
+    private fun createTrackSelector(options: PlaybackOptions): TrackSelector {
         return DefaultTrackSelector(context).apply {
             setParameters(
                 buildUponParameters()
                     .setForceHighestSupportedBitrate(true)
-                    .setTunnelingEnabled(tunneling)
+                    .setTunnelingEnabled(options.tunneling)
+                    .applySubtitleMode(options.subtitleMode)
+                    .build()
             )
         }
+    }
+
+    private suspend fun readPlaybackOptions(): PlaybackOptions = PlaybackOptions(
+        tunneling = settings[PreferencesKeys.TUNNELING],
+        dolbyVisionAsHdr10 = settings[PreferencesKeys.DOLBY_VISION_AS_HDR10],
+        audioPassthrough = settings[PreferencesKeys.AUDIO_PASSTHROUGH],
+        preferSoftwareDecoder = settings[PreferencesKeys.PREFER_SOFTWARE_DECODER],
+        bufferProfile = settings[PreferencesKeys.BUFFER_PROFILE],
+        subtitleMode = settings[PreferencesKeys.SUBTITLE_MODE],
+        styledSubtitles = settings[PreferencesKeys.STYLED_SUBTITLES],
+    )
+
+    override fun addSubtitle(uri: Uri, mimeType: String, language: String?, label: String) {
+        val target = player.value ?: return
+        val item = activeMediaItem ?: return
+        val build = activeSourceBuilder ?: return
+        val existing = item.localConfiguration?.subtitleConfigurations.orEmpty()
+        val subtitle = MediaItem.SubtitleConfiguration.Builder(uri)
+            .setMimeType(mimeType)
+            .setLanguage(language)
+            .setLabel(label)
+            // Well clear of the stream's own track ids (libass keys tracks by id).
+            .setId("${EXTERNAL_SUBTITLE_ID_BASE + existing.size}")
+            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+            .build()
+        val next = item.buildUpon().setSubtitleConfigurations(existing + subtitle).build()
+        activeMediaItem = next
+        val position = target.currentPosition
+        target.trackSelectionParameters = target.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setIgnoredTextSelectionFlags(0)
+            .setPreferredTextLanguage(language)
+            .build()
+        target.setMediaSource(build(next), position)
+        target.prepare()
     }
 
     private fun createHttpDataSourceFactory(
@@ -1297,6 +1393,7 @@ fun VideoSize.toRect(): Rect {
 }
 
 private const val MAX_RECONNECT_ATTEMPTS = 6
+private const val EXTERNAL_SUBTITLE_ID_BASE = 1_000
 private const val RECONNECT_FIRST_WAIT_MS = 1_000L
 
 /** Live channels have no end; a plain .ts channel doesn't even say how long it is. */
