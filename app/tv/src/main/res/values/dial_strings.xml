@@ -452,4 +452,22 @@
     <string name="dial_details_spoiler">Contains spoilers. Press OK to read.</string>
     <string name="dial_person_born">Born %1$s</string>
     <string name="dial_person_known_for">Known for</string>
+
+    <!-- Markets: more sources, charts, Telegram -->
+    <string name="dial_markets_robinhood">Robinhood</string>
+    <string name="dial_markets_hyperliquid">Hyperliquid</string>
+    <string name="dial_markets_top_coins">Top coins</string>
+    <string name="dial_markets_open_interest">Open interest</string>
+    <string name="dial_markets_range_hour">1H</string>
+    <string name="dial_markets_range_day">1D</string>
+    <string name="dial_markets_range_week">1W</string>
+    <string name="dial_markets_range_month">1M</string>
+    <string name="dial_markets_chart_loading">Loading chart…</string>
+    <string name="dial_markets_chart_none">No chart for this one</string>
+    <string name="dial_markets_telegram_send">Send to Telegram</string>
+    <string name="dial_markets_telegram_setup">Add your Telegram bot token and chat ID in Settings, Services first.</string>
+    <string name="dial_markets_telegram_sent">Sent to your Telegram</string>
+    <string name="dial_markets_telegram_failed">Telegram didn\'t take it. Check the bot token and chat ID.</string>
+    <string name="dial_markets_scan">Scan to open in %1$s</string>
+    <string name="dial_markets_next_link">Other link</string>
 </resources>

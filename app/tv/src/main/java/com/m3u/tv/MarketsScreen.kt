@@ -1,5 +1,13 @@
 package com.m3u.tv
 
+import android.widget.Toast
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.CurrencyBitcoin
+import androidx.compose.material.icons.rounded.Forest
+import androidx.compose.material.icons.rounded.QrCode2
+import androidx.compose.material.icons.automirrored.rounded.ShowChart
+import androidx.compose.material.icons.rounded.WaterDrop
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
@@ -64,12 +72,29 @@ import kotlinx.coroutines.delay
  */
 
 private const val REFRESH_MS = 30_000L
-private val CHAINS = listOf(null, "solana", "base", "ethereum", "bsc")
+private const val CHART_REFRESH_MS = 60_000L
+private val CHAINS = listOf(null, "solana", "base", "ethereum", "bsc", "robinhood")
+
+private fun ChartRange.labelRes(): Int = when (this) {
+    ChartRange.Hour -> R.string.dial_markets_range_hour
+    ChartRange.Day -> R.string.dial_markets_range_day
+    ChartRange.Week -> R.string.dial_markets_range_week
+    ChartRange.Month -> R.string.dial_markets_range_month
+}
 
 @Composable
 fun MarketsScreen(viewModel: MarketsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val watchlist by viewModel.watchlist.collectAsStateWithLifecycle()
+    val chart by viewModel.chart.collectAsStateWithLifecycle()
+    val range by viewModel.range.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val tradingBot = remember { viewModel.tradingBot }
+    LaunchedEffect(viewModel) {
+        viewModel.messages.collect { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
     var focused by remember { mutableStateOf<MarketPair?>(null) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
@@ -85,11 +110,20 @@ fun MarketsScreen(viewModel: MarketsViewModel = hiltViewModel()) {
     }
 
     val shown = state.items
-        .filter { state.chain == null || it.chainId == state.chain }
+        .filter { state.chain == null || !state.section.filtersByChain || it.chainId == state.chain }
         .let { list ->
             if (state.section == MarketSection.Watchlist) list.filter { it.watchKey in watchlist } else list
         }
     val detail = focused?.let { f -> state.items.firstOrNull { it.key == f.key } ?: f }
+
+    // The chart follows the token in the side panel, refreshing every minute.
+    LaunchedEffect(detail?.key, range) {
+        val pair = detail ?: return@LaunchedEffect
+        while (true) {
+            viewModel.loadChart(pair, range)
+            delay(CHART_REFRESH_MS)
+        }
+    }
 
     Column(
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -179,7 +213,12 @@ fun MarketsScreen(viewModel: MarketsViewModel = hiltViewModel()) {
                         pair = detail,
                         watched = detail.watchKey in watchlist,
                         now = now,
+                        chart = chart?.takeIf { it.key == detail.key },
+                        range = range,
+                        links = remember(detail, tradingBot) { tokenLinks(detail, tradingBot) },
+                        onRange = viewModel::selectRange,
                         onToggleWatch = { viewModel.toggleWatch(detail) },
+                        onSendToTelegram = { viewModel.sendToTelegram(detail) },
                     )
                 } else {
                     MarketsNote(stringResource(R.string.dial_markets_hint))
@@ -296,8 +335,14 @@ private fun MarketDetail(
     pair: MarketPair,
     watched: Boolean,
     now: Long,
+    chart: ChartState?,
+    range: ChartRange,
+    links: List<Pair<String, String>>,
+    onRange: (ChartRange) -> Unit,
     onToggleWatch: () -> Unit,
+    onSendToTelegram: () -> Unit,
 ) {
+    var linkIndex by remember(pair.key) { mutableStateOf(0) }
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(vertical = 4.dp),
@@ -345,6 +390,21 @@ private fun MarketDetail(
             )
         }
         item {
+            PriceChart(candles = chart?.candles.orEmpty(), loading = chart?.loading != false)
+        }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.focusGroup()) {
+                items(ChartRange.entries, key = { it.name }) { option ->
+                    TvActionButton(
+                        text = stringResource(option.labelRes()),
+                        icon = Icons.AutoMirrored.Rounded.ShowChart,
+                        selected = option == range,
+                        onClick = { onRange(option) },
+                    )
+                }
+            }
+        }
+        item {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 listOf("5m" to pair.change5m, "1h" to pair.change1h, "6h" to pair.change6h, "24h" to pair.change24h)
                     .forEach { (label, value) ->
@@ -364,7 +424,13 @@ private fun MarketDetail(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Stat(stringResource(R.string.dial_markets_market_cap), formatUsdCompact(pair.marketCap))
                 Stat(stringResource(R.string.dial_markets_fdv), formatUsdCompact(pair.fdv))
-                Stat(stringResource(R.string.dial_markets_liquidity), formatUsdCompact(pair.liquidityUsd))
+                Stat(
+                    stringResource(
+                        if (pair.chainId == CHAIN_HYPERLIQUID) R.string.dial_markets_open_interest
+                        else R.string.dial_markets_liquidity
+                    ),
+                    formatUsdCompact(pair.liquidityUsd),
+                )
                 Stat(stringResource(R.string.dial_markets_volume), formatUsdCompact(pair.volume24h))
                 if (pair.buys24h != null && pair.sells24h != null) {
                     Stat(
@@ -377,7 +443,9 @@ private fun MarketDetail(
                     stringResource(R.string.dial_markets_exchange),
                     listOfNotNull(chainLabel(pair.chainId), pair.dexId.takeIf { it.isNotBlank() }).joinToString("  "),
                 )
-                Stat(stringResource(R.string.dial_markets_address), shortAddress(pair.baseAddress))
+                if (pair.chainId != CHAIN_HYPERLIQUID && pair.chainId != CHAIN_COIN) {
+                    Stat(stringResource(R.string.dial_markets_address), shortAddress(pair.baseAddress))
+                }
                 pair.boosts?.takeIf { it > 0 }?.let {
                     Stat(stringResource(R.string.dial_markets_boosts_label), it.toString())
                 }
@@ -397,13 +465,46 @@ private fun MarketDetail(
             }
         }
         item {
-            TvActionButton(
-                text = stringResource(
-                    if (watched) R.string.dial_markets_watch_remove else R.string.dial_markets_watch_add
-                ),
-                icon = if (watched) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                onClick = onToggleWatch,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.focusGroup()) {
+                TvActionButton(
+                    text = stringResource(
+                        if (watched) R.string.dial_markets_watch_remove else R.string.dial_markets_watch_add
+                    ),
+                    icon = if (watched) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                    onClick = onToggleWatch,
+                )
+                TvActionButton(
+                    text = stringResource(R.string.dial_markets_telegram_send),
+                    icon = Icons.AutoMirrored.Rounded.Send,
+                    onClick = onSendToTelegram,
+                )
+            }
+        }
+        // Scan with the phone: the trading bot in Telegram, DEX Screener, GMGN, Photon, Arkham.
+        links.getOrNull(linkIndex.coerceIn(0, (links.size - 1).coerceAtLeast(0)))?.let { (label, url) ->
+            item {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    QrCode(text = url, contentDescription = label, size = 112.dp)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = stringResource(R.string.dial_markets_scan, label),
+                            color = TvColors.TextPrimary,
+                            fontFamily = TvFonts.Body,
+                            fontSize = 14.sp,
+                        )
+                        if (links.size > 1) {
+                            TvActionButton(
+                                text = stringResource(R.string.dial_markets_next_link),
+                                icon = Icons.Rounded.QrCode2,
+                                onClick = { linkIndex = (linkIndex + 1) % links.size },
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -483,7 +584,10 @@ private fun MarketsNote(text: String) {
 private fun MarketSection.labelRes(): Int = when (this) {
     MarketSection.Trending -> R.string.dial_markets_trending
     MarketSection.PumpFun -> R.string.dial_markets_pumpfun
+    MarketSection.Robinhood -> R.string.dial_markets_robinhood
     MarketSection.New -> R.string.dial_markets_new
+    MarketSection.Hyperliquid -> R.string.dial_markets_hyperliquid
+    MarketSection.TopCoins -> R.string.dial_markets_top_coins
     MarketSection.Watchlist -> R.string.dial_markets_watchlist
     MarketSection.Search -> R.string.dial_markets_search
 }
@@ -491,7 +595,10 @@ private fun MarketSection.labelRes(): Int = when (this) {
 private fun MarketSection.icon() = when (this) {
     MarketSection.Trending -> Icons.AutoMirrored.Rounded.TrendingUp
     MarketSection.PumpFun -> Icons.Rounded.LocalFireDepartment
+    MarketSection.Robinhood -> Icons.Rounded.Forest
     MarketSection.New -> Icons.Rounded.FiberNew
+    MarketSection.Hyperliquid -> Icons.Rounded.WaterDrop
+    MarketSection.TopCoins -> Icons.Rounded.CurrencyBitcoin
     MarketSection.Watchlist -> Icons.Rounded.Star
     MarketSection.Search -> Icons.Rounded.Search
 }
