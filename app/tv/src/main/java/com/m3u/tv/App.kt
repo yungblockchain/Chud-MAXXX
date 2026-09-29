@@ -50,6 +50,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -90,6 +93,9 @@ fun tvDestinationFromExtra(value: String?): TvDestination? {
     if (name == "settings") return TvDestination.Status
     return TvDestination.entries.firstOrNull { it.name.lowercase() == name }
 }
+
+/** How long a screen gets to take focus itself before the app puts focus in it. */
+private const val FOCUS_RESCUE_MS = 450L
 
 /** How long the "press Back again" hint waits for the second press. */
 private const val EXIT_WINDOW_MS = 2_500L
@@ -349,6 +355,8 @@ fun App(
     var menuChannel by remember { mutableStateOf<Channel?>(null) }
     var menuCategory by remember { mutableStateOf<String?>(null) }
     var menuReturnFocus by remember { mutableStateOf<FocusRequester?>(null) }
+    var browseHasFocus by remember { mutableStateOf(false) }
+    val contentFocus = remember { FocusRequester() }
     val openChannelMenu = remember {
         { channel: Channel, requester: FocusRequester ->
             menuReturnFocus = requester
@@ -500,17 +508,32 @@ fun App(
     ) {
         TvBackdrop(channel = currentChannel ?: state.heroChannel)
         val browsing = onBrowse && details == null && !showSplash
+        // Nothing focused after the launch animation, a tab change or an overlay closing (the
+        // screen asked for focus while it couldn't take it): put focus in the screen, so the
+        // first key press does something sensible.
+        LaunchedEffect(browsing, destination, menuChannel == null && menuCategory == null) {
+            if (!browsing || menuChannel != null || menuCategory != null) return@LaunchedEffect
+            delay(FOCUS_RESCUE_MS)
+            if (!browseHasFocus) runCatching { contentFocus.requestFocus() }
+        }
         CompositionLocalProvider(
             LocalTvFocusEnabled provides browsing,
             LocalChannelMenu provides openChannelMenu.takeIf { browsing },
             LocalCategoryMenu provides openCategoryMenu.takeIf { browsing },
         ) {
-            Row(Modifier.fillMaxSize()) {
+            Row(
+                Modifier
+                    .fillMaxSize()
+                    .onFocusChanged { browseHasFocus = it.hasFocus }
+            ) {
                 TvNavigationRail(
                     selected = destination,
                     onSelect = { destination = it }
                 )
                 TvBrowsePane(
+                    modifier = Modifier
+                        .focusRequester(contentFocus)
+                        .focusGroup(),
                     destination = destination,
                     state = state,
                     onOpenLibrary = { destination = TvDestination.Library },

@@ -168,6 +168,7 @@ fun TvBrowsePane(
     claudeContent: @Composable () -> Unit = {},
     dialSettingsContent: @Composable () -> Unit = {},
     playbackSettingsContent: @Composable () -> Unit = {},
+    modifier: Modifier = Modifier,
     favouritesContent: @Composable () -> Unit = {},
     trending: List<TrendingEntry> = emptyList(),
     onOpenTrending: (TrendingEntry) -> Unit = {},
@@ -175,7 +176,7 @@ fun TvBrowsePane(
     servicesSettingsContent: @Composable () -> Unit = {},
 ) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {

@@ -172,15 +172,7 @@ fun XtreamSignInScreen(
                     selected = m3u,
                     onClick = { viewModel.setMode(SignInMode.M3u) },
                 )
-                // Typing a long server address and password with a remote is slow.
-                TvActionButton(
-                    text = stringResource(R.string.dial_signin_use_phone),
-                    icon = Icons.Rounded.PhoneAndroid,
-                    selected = phonePage != null,
-                    onClick = services::togglePhonePage,
-                )
             }
-            phonePage?.let { PhonePageCard(it) }
             if (m3u) {
                 DialTextField(
                     label = stringResource(R.string.dial_field_playlist_url),
@@ -257,6 +249,13 @@ fun XtreamSignInScreen(
                     focusableWhenDisabled = true,
                     focusRequester = signInFocus,
                 )
+                // Typing a long server address and password with a remote is slow.
+                TvActionButton(
+                    text = stringResource(R.string.dial_signin_use_phone),
+                    icon = Icons.Rounded.PhoneAndroid,
+                    selected = phonePage != null,
+                    onClick = services::togglePhonePage,
+                )
                 if (onCancel != null) {
                     TvActionButton(
                         text = stringResource(R.string.dial_action_cancel),
@@ -265,6 +264,7 @@ fun XtreamSignInScreen(
                     )
                 }
             }
+            phonePage?.let { PhonePageCard(it) }
             SignInMessage(form.phase, m3u)
         }
     }
