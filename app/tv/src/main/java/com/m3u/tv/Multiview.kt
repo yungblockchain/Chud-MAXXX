@@ -69,6 +69,7 @@ import com.m3u.data.repository.playlist.PlaylistRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -97,6 +98,9 @@ class MultiviewViewModel @Inject constructor(
     private val _audio = MutableStateFlow(0)
     val audio: StateFlow<Int> = _audio.asStateFlow()
 
+    // Pending reconnects, cancelled when a tile stops or goes.
+    private val retryJobs = mutableMapOf<ExoPlayer, Job>()
+
     /** Can this channel be shown in a tile (it needs a plain stream address)? */
     fun supports(channel: Channel): Boolean =
         channel.url.startsWith("http", ignoreCase = true) || channel.url.startsWith("rtmp", ignoreCase = true)
@@ -120,6 +124,7 @@ class MultiviewViewModel @Inject constructor(
         val current = _tiles.value.getOrNull(index) ?: return add(channel)
         viewModelScope.launch {
             val player = createPlayer(channel)
+            retryJobs.remove(current.player)?.cancel()
             current.player.release()
             _tiles.value = _tiles.value.toMutableList().also { it[index] = MultiviewTile(channel, player) }
             applyAudio()
@@ -128,6 +133,7 @@ class MultiviewViewModel @Inject constructor(
 
     fun remove(index: Int) {
         val tile = _tiles.value.getOrNull(index) ?: return
+        retryJobs.remove(tile.player)?.cancel()
         tile.player.release()
         _tiles.value = _tiles.value.filterIndexed { i, _ -> i != index }
         _audio.value = _audio.value.coerceIn(0, (_tiles.value.size - 1).coerceAtLeast(0))
@@ -141,7 +147,10 @@ class MultiviewViewModel @Inject constructor(
     }
 
     /** The app left the screen: stop every tile (their connections and decoders). */
-    fun stopAll() = _tiles.value.forEach { it.player.stop() }
+    fun stopAll() = _tiles.value.forEach {
+        retryJobs.remove(it.player)?.cancel()
+        it.player.stop()
+    }
 
     /** Back on screen: reconnect every tile at the live edge. */
     fun resumeAll() = _tiles.value.forEach { tile ->
@@ -152,7 +161,10 @@ class MultiviewViewModel @Inject constructor(
     }
 
     fun releaseAll() {
-        _tiles.value.forEach { it.player.release() }
+        _tiles.value.forEach {
+            retryJobs.remove(it.player)?.cancel()
+            it.player.release()
+        }
         _tiles.value = emptyList()
         _audio.value = 0
     }
@@ -197,7 +209,8 @@ class MultiviewViewModel @Inject constructor(
             private var retries = 0
             override fun onPlayerError(error: PlaybackException) {
                 if (retries++ >= MAX_RETRIES) return
-                viewModelScope.launch {
+                retryJobs.remove(player)?.cancel()
+                retryJobs[player] = viewModelScope.launch {
                     delay(RETRY_WAIT_MS * retries)
                     player.seekToDefaultPosition()
                     player.prepare()

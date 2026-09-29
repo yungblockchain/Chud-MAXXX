@@ -238,8 +238,11 @@ fun TvPlayerScreen(
     LaunchedEffect(activity, videoFrameRate, preferences.matchFrameRate) {
         val host = activity ?: return@LaunchedEffect
         val window = host.window ?: return@LaunchedEffect
-        if (!preferences.matchFrameRate || videoFrameRate <= 0f) return@LaunchedEffect
-        val modeId = bestDisplayModeFor(host, videoFrameRate)
+        // Without frame-rate matching, hand the mode back to the TV (and the Fire TV's own
+        // "match original frame rate" setting) rather than keeping the menus' mode.
+        val modeId = if (preferences.matchFrameRate && videoFrameRate > 0f) {
+            bestDisplayModeFor(host, videoFrameRate)
+        } else 0
         val params = window.attributes
         if (params.preferredDisplayModeId != modeId) {
             params.preferredDisplayModeId = modeId
@@ -253,13 +256,6 @@ fun TvPlayerScreen(
         }
     }
 
-    // Stop the Fire TV screensaver from kicking in during playback, and while a stream is
-    // loading or reconnecting (the screensaver would stop it for good).
-    val keepAwake = isPlaying || playbackState == Player.STATE_BUFFERING || reconnecting
-    DisposableEffect(view, keepAwake) {
-        view.keepScreenOn = keepAwake
-        onDispose { view.keepScreenOn = false }
-    }
 
     LaunchedEffect(sleepEndsAt) {
         val end = sleepEndsAt ?: return@LaunchedEffect

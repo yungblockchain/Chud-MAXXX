@@ -51,6 +51,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -306,6 +311,9 @@ fun MenuPanel(
     footer: (@Composable () -> Unit)? = null,
 ) {
     val firstEntry = remember { FocusRequester() }
+    // The menu opens while OK is still held (a long press); its repeats and release must not
+    // pick the first entry. OK counts again after a fresh press.
+    var okArmed by remember { mutableStateOf(false) }
     BackHandler(onBack = onDismiss)
     LaunchedEffect(title, entries.size) {
         for (attempt in 0 until MENU_FOCUS_ATTEMPTS) {
@@ -319,6 +327,18 @@ fun MenuPanel(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.66f))
+            .onPreviewKeyEvent { event ->
+                val confirm = event.key == Key.DirectionCenter || event.key == Key.Enter ||
+                    event.key == Key.NumPadEnter
+                when {
+                    !confirm || okArmed -> false
+                    event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0 -> {
+                        okArmed = true
+                        false
+                    }
+                    else -> true
+                }
+            }
     ) {
         Column(
             verticalArrangement = Arrangement.spacedBy(12.dp),

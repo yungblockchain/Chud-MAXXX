@@ -63,6 +63,7 @@ import com.m3u.data.service.currentTracks
 import com.m3u.data.service.tracks
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.IOException
 import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -188,6 +189,8 @@ class PlayerOptionsViewModel @Inject constructor(
                 throw e
             } catch (e: OpenSubtitlesException) {
                 SubtitleSearch.Failed(e.failure)
+            } catch (e: Exception) {
+                SubtitleSearch.Failed(if (e is IOException) OpenSubtitlesFailure.Offline else OpenSubtitlesFailure.Other(null))
             }
         }
     }
@@ -210,6 +213,8 @@ class PlayerOptionsViewModel @Inject constructor(
                 throw e
             } catch (e: OpenSubtitlesException) {
                 SubtitleSearch.Failed(e.failure)
+            } catch (e: Exception) {
+                SubtitleSearch.Failed(if (e is IOException) OpenSubtitlesFailure.Offline else OpenSubtitlesFailure.Other(null))
             }
         }
     }

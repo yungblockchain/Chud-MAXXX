@@ -79,7 +79,8 @@ class PhoneCompanion @Inject constructor(
         Thread({
             while (!socket.isClosed) {
                 val client = runCatching { socket.accept() }.getOrNull() ?: break
-                runCatching { pool.execute { handle(client) } }.onFailure { client.close() }
+                // A bad or dropped connection must never take the app down.
+                runCatching { pool.execute { runCatching { handle(client) } } }.onFailure { client.close() }
             }
         }, "phone-page").apply { isDaemon = true }.start()
         _info.value = CompanionInfo(address = "http://${localAddress() ?: "fire-tv"}:${socket.localPort}", pin = pin)
@@ -207,11 +208,12 @@ class PhoneCompanion @Inject constructor(
     }
 
     private fun parseForm(body: String): Map<String, String> =
-        body.split('&').filter { it.isNotEmpty() }.associate { pair ->
-            val key = URLDecoder.decode(pair.substringBefore('='), "UTF-8")
-            val value = URLDecoder.decode(pair.substringAfter('=', ""), "UTF-8")
-            key to value
-        }
+        body.split('&').filter { it.isNotEmpty() }.mapNotNull { pair ->
+            runCatching {
+                URLDecoder.decode(pair.substringBefore('='), "UTF-8") to
+                    URLDecoder.decode(pair.substringAfter('=', ""), "UTF-8")
+            }.getOrNull()
+        }.toMap()
 
     /** The Fire TV's address on the home network (Wi-Fi or Ethernet). */
     private fun localAddress(): String? = runCatching {

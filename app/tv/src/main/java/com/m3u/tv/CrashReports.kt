@@ -175,6 +175,8 @@ internal object CrashReports {
     private val redactions = listOf(
         // Xtream stream paths: /live/<user>/<pass>/..., /movie/..., /series/..., /timeshift/...
         Regex("""(/(?:live|movie|series|timeshift)/)[^/\s]+/[^/\s]+/""") to "$1***/***/",
+        // Short form: http://host:port/<user>/<pass>/<stream id>
+        Regex("""(https?://[^/\s]+/)[^/\s]+/[^/\s]+/(\d+(?:\.\w+)?)\b""") to "$1***/***/$2",
         Regex("""(?i)((?:username|password|pass|user|api_key|apikey|token|key|auth)=)[^&\s"']+""") to "$1***",
         Regex("""(?i)(authorization:\s*(?:bearer|basic)\s+)\S+""") to "$1***",
         Regex("""(?i)(x-api-key:\s*)\S+""") to "$1***",

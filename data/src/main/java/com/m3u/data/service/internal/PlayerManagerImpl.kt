@@ -515,7 +515,12 @@ class PlayerManagerImpl @Inject constructor(
             assHandler = assHandler,
         ) ?: return
         // For adding a subtitle file later: the same item and loaders, plus local files.
-        activeMediaItem = mediaItem.buildUpon().setMimeType(mimeType).build()
+        // Only adaptive formats need their type; this code tags plain files as APPLICATION_SS
+        // (read as progressive above), which DefaultMediaSourceFactory would take for
+        // SmoothStreaming.
+        activeMediaItem = mediaItem.buildUpon()
+            .setMimeType(mimeType.takeIf { it == MimeTypes.APPLICATION_M3U8 || it == MimeTypes.APPLICATION_MPD })
+            .build()
         activeSourceBuilder = { item ->
             DefaultMediaSourceFactory(
                 DefaultDataSource.Factory(context, dataSourceFactory),

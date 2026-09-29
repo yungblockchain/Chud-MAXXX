@@ -10,6 +10,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
@@ -72,7 +73,9 @@ import com.m3u.data.database.model.isVod
 import com.m3u.data.tv.model.keyCode
 import com.m3u.i18n.R.string
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 
 /** Launch extra naming the tab to open first, e.g. `--es destination games` (see [tvDestinationFromExtra]). */
@@ -319,11 +322,14 @@ fun App(
     LaunchedEffect(playbackFailed, playbackError) {
         if (!playbackFailed) return@LaunchedEffect
         val channel = currentChannel ?: return@LaunchedEffect
-        CrashReports.recordError(
-            context = context,
-            title = "Stream stopped: ${channel.title}",
-            details = "Error: ${playbackError ?: "unknown"}\nLive: $live\nAddress: ${channel.url}",
-        )
+        val host = runCatching { Uri.parse(channel.url).host }.getOrNull() ?: "?"
+        withContext(Dispatchers.IO) {
+            CrashReports.recordError(
+                context = context,
+                title = "Stream stopped: ${channel.title}",
+                details = "Error: ${playbackError ?: "unknown"}\nLive: $live\nServer: $host",
+            )
+        }
     }
     // Send saved reports when the app starts, if that's switched on.
     LaunchedEffect(Unit) {
@@ -411,10 +417,14 @@ fun App(
     }
     // With the mini player showing, Back closes it first.
     BackHandler(enabled = surface == TvSurface.Mini && details == null, onBack = closePlayer)
-    // The mini player keeps the screensaver away like the full one does.
-    DisposableEffect(view, surface == TvSurface.Mini && isPlaying) {
-        if (surface == TvSurface.Mini && isPlaying) view.keepScreenOn = true
-        onDispose { if (surface != TvSurface.Player) view.keepScreenOn = false }
+    // No screensaver while video plays, loads or reconnects (full screen, mini or Multiview):
+    // the screensaver would stop the stream.
+    val keepAwake = surface == TvSurface.Multiview ||
+        ((surface == TvSurface.Player || surface == TvSurface.Mini) &&
+            (isPlaying || playbackState == Player.STATE_BUFFERING || reconnecting))
+    DisposableEffect(view, keepAwake) {
+        view.keepScreenOn = keepAwake
+        onDispose { view.keepScreenOn = false }
     }
 
     LaunchedEffect(exitArmedAt) {
