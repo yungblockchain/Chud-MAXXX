@@ -42,6 +42,35 @@ open_tab() {
     sleep "${2:-8}"
     hide_keyboard
 }
+# Type into the focused text field with the on-screen keyboard closed, so the key presses reach
+# the field rather than the keyboard.
+type_text() {
+    hide_keyboard
+    adb shell input text "$1"
+    sleep 1
+    hide_keyboard
+}
+# Sign in to the test Xtream server the workflow starts on the runner (the emulator reaches the
+# runner at 10.0.2.2). Returns 1 if that server isn't running.
+sign_in() {
+    if ! curl -sf http://127.0.0.1:8080/health >/dev/null; then
+        echo "No test Xtream server, so the signed-in screens are skipped."
+        return 1
+    fi
+    open_tab account 8
+    type_text "http://10.0.2.2:8080"
+    press $DOWN; hide_keyboard
+    type_text "m3u"
+    press $DOWN; hide_keyboard
+    type_text "m3u"
+    shot 17-sign-in-filled
+    # Past the optional name field to the Sign in button.
+    press $DOWN; hide_keyboard
+    press $DOWN; hide_keyboard
+    press $OK
+    sleep 25
+    shot 18-signed-in
+}
 
 adb install -r chud-streams.apk || { echo "::error::Install failed on API $API"; exit 0; }
 adb logcat -c
@@ -60,7 +89,9 @@ if check "launch"; then
     check "markets"
 
     open_tab games 8;     shot 06-games
-    press $RIGHT;         shot 07-games-focus
+    # Nothing has focus after a cold start on this tab: the first key press lands on the top of
+    # the menu rail (Home), so walk down to Games and step right into the first game.
+    press $RIGHT $DOWN $DOWN $DOWN $DOWN $DOWN $RIGHT; shot 07-games-focus
     # Snake: open it, start it, let it run for a moment.
     press $OK; sleep 2;   shot 08-snake-ready
     press $OK; sleep 3;   shot 09-snake
@@ -77,8 +108,17 @@ if check "launch"; then
     check "settings"
 
     open_tab guide 8;     shot 14-guide
-    open_tab home 8;      shot 15-home
-    open_tab account 8;   shot 16-account
+    check "settings and guide"
+
+    # Signed in to the test server: home, library, the timeline guide and the account list.
+    if sign_in && check "sign-in"; then
+        open_tab home 10;     shot 19-home
+        open_tab library 10;  shot 20-library
+        open_tab guide 12;    shot 21-guide
+        press $RIGHT; sleep 3; shot 22-guide-focus
+        press $DOWN; sleep 3;  shot 23-guide-next
+        open_tab account 8;   shot 24-account
+    fi
     check "walkthrough"
 fi
 

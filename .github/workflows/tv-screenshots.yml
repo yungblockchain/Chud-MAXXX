@@ -16,6 +16,7 @@ on:
     paths:
       - ".github/workflows/tv-screenshots.yml"
       - ".github/scripts/tv-screenshots.sh"
+      - "testing/mock-server/**"
 
 permissions:
   contents: read
@@ -44,6 +45,38 @@ jobs:
         run: |
           curl -sSfL -o chud-streams.apk "https://github.com/${{ github.repository }}/releases/latest/download/chud-streams.apk"
           ls -la chud-streams.apk
+
+      # A local test Xtream server (testing/mock-server) with a few channels, films, series and
+      # guide listings, so the screenshots can show a signed-in app. The emulator reaches it at
+      # http://10.0.2.2:8080. If it doesn't start, the walkthrough just skips the signed-in part.
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: 17
+          distribution: zulu
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Start the test Xtream server
+        continue-on-error: true
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          if ! ./gradlew :testing:mock-server:installDist --console=plain 2>&1 | tee mock-build.log; then
+            grep -E "^e: |What went wrong" -A 3 mock-build.log | head -40 | \
+              python3 -c "import sys; print('::warning title=Test server build failed::' + sys.stdin.read().replace('%','%25').replace('\n','%0A'))"
+            exit 1
+          fi
+          nohup testing/mock-server/build/install/mock-server/bin/mock-server --host 0.0.0.0 --port 8080 \
+            > mock-server.log 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8080/health && break
+            sleep 1
+          done
+          curl -sf "http://127.0.0.1:8080/player_api.php?username=m3u&password=m3u&action=get_short_epg&stream_id=1001&limit=2"
 
       - name: Enable KVM
         run: |

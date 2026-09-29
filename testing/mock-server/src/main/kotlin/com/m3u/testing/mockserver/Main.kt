@@ -26,6 +26,11 @@ import kotlinx.serialization.json.putJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.text.SimpleDateFormat
+import java.util.Base64
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.ConcurrentHashMap
 
 private const val DEFAULT_HOST = "0.0.0.0"
@@ -458,6 +463,14 @@ internal fun Application.mockServerModule() {
                 "get_series_info" -> seriesInfo(
                     seriesId = call.request.queryParameters["series_id"]?.toIntOrNull() ?: 3001
                 )
+                "get_short_epg" -> epgListings(
+                    streamId = call.request.queryParameters["stream_id"]?.toIntOrNull(),
+                    limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 4,
+                )
+                "get_simple_data_table" -> epgListings(
+                    streamId = call.request.queryParameters["stream_id"]?.toIntOrNull(),
+                    limit = null,
+                )
                 else -> JsonObject(emptyMap())
             }
 
@@ -796,6 +809,67 @@ private fun seriesInfo(seriesId: Int): JsonObject = buildJsonObject {
         )
         if (seriesId == 3002) {
             put("2", JsonArray(listOf(episode(id = "9010", number = "1", title = "Advanced Playback"))))
+        }
+    }
+}
+
+/** Programme names per live stream id, repeated through the day. */
+private val epgTitles = mapOf(
+    1001 to listOf("Morning Briefing", "World Desk", "Market Watch", "Evening Headlines", "Late Report"),
+    1002 to listOf("Match Day Live", "Goals Extra", "Fight Night Preview", "Track and Field", "Classic Finals"),
+    1003 to listOf("Cartoon Club", "Space Pals", "Science Lab", "Story Time", "Puzzle Quest"),
+)
+
+/** Programme lengths in minutes, cycled so the guide shows blocks of different widths. */
+private val epgLengths = listOf(30, 60, 30, 90, 60)
+
+/**
+ * Xtream EPG listings (get_short_epg / get_simple_data_table) built around the current time:
+ * from three hours ago to nine hours ahead, with base64 titles as real panels send them. Past
+ * programmes are marked as replayable. [limit] keeps only the current and next ones.
+ */
+private fun epgListings(streamId: Int?, limit: Int?): JsonObject {
+    val titles = epgTitles[streamId].orEmpty()
+    val nowSeconds = System.currentTimeMillis() / 1000
+    val hour = 3600L
+    val firstStart = nowSeconds - nowSeconds % hour - 3 * hour
+    val lastEnd = firstStart + 12 * hour
+    val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
+    val encoder = Base64.getEncoder()
+    val listings = mutableListOf<JsonObject>()
+    var start = firstStart
+    var index = 0
+    while (titles.isNotEmpty() && start < lastEnd) {
+        val end = start + epgLengths[(index + (streamId ?: 0)) % epgLengths.size] * 60L
+        val title = titles[index % titles.size]
+        if (limit == null || end > nowSeconds) {
+            listings += buildJsonObject {
+                put("id", "${streamId}-$index")
+                put("epg_id", "mock-$streamId")
+                put("title", encoder.encodeToString(title.encodeToByteArray()))
+                put("lang", "en")
+                put("start", format.format(Date(start * 1000)))
+                put("end", format.format(Date(end * 1000)))
+                put(
+                    "description",
+                    encoder.encodeToString("$title on the mock server's schedule.".encodeToByteArray()),
+                )
+                put("channel_id", "mock-$streamId")
+                put("start_timestamp", start.toString())
+                put("stop_timestamp", end.toString())
+                put("now_playing", if (nowSeconds in start until end) 1 else 0)
+                put("has_archive", if (end <= nowSeconds) 1 else 0)
+            }
+        }
+        start = end
+        index++
+    }
+    val shown = if (limit != null) listings.take(limit) else listings
+    return buildJsonObject {
+        putJsonArray("epg_listings") {
+            shown.forEach { add(it) }
         }
     }
 }

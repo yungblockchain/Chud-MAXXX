@@ -60,6 +60,10 @@ physical device:
 - `/player_api.php?username=m3u&password=m3u&action=get_series_categories`
 - `/player_api.php?username=m3u&password=m3u&action=get_series`
 - `/player_api.php?username=m3u&password=m3u&action=get_series_info&series_id=3001`
+- `/player_api.php?username=m3u&password=m3u&action=get_short_epg&stream_id=1001&limit=4` returns
+  the current and next programmes for a live stream (1001, 1002 or 1003).
+- `/player_api.php?username=m3u&password=m3u&action=get_simple_data_table&stream_id=1001` returns
+  twelve hours of programmes around the current time; past ones are marked `has_archive`.
 - `/System/Info/Public` returns Emby-compatible server identity.
 - `/Users/AuthenticateByName` accepts the default credentials.
 - `/LiveTv/Channels` returns two live channels with token authentication.
