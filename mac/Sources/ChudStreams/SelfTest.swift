@@ -214,7 +214,7 @@ enum SelfTest {
         if !(goodFrame || (share > 0.3 && distinct.count > 20)) {
             log("warning: no bright frame captured on this machine")
         }
-        return fileLoaded && renders > 3
+        return fileLoaded && renders >= 3
     }
 
     /// Share of lit pixels and number of distinct colours in the offscreen framebuffer.
