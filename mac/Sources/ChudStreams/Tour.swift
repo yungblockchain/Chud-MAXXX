@@ -109,7 +109,7 @@ enum TourRunner {
             model.open(film)
             await wait(5)
             shot("06-film-details")
-            if let window { scroll(window, by: -700) }
+            NotificationCenter.default.post(name: DetailsPage.showCast, object: nil)
             await wait(2)
             shot("07-film-details-cast-comments")
             // An actor's page.
@@ -282,15 +282,6 @@ enum TourRunner {
             await wait(0.25)
         }
         return nil
-    }
-
-    private static func scroll(_ window: NSWindow, by delta: CGFloat) {
-        guard let content = window.contentView else { return }
-        let point = NSPoint(x: content.bounds.midX, y: content.bounds.midY)
-        guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: Int32(delta), wheel2: 0, wheel3: 0),
-              let nsEvent = NSEvent(cgEvent: event) else { return }
-        _ = point
-        window.sendEvent(nsEvent)
     }
 
     private static func postKey(_ characters: String) {

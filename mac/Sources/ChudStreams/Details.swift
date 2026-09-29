@@ -80,23 +80,30 @@ struct DetailsPage: View {
         ZStack(alignment: .topLeading) {
             Neon.background.ignoresSafeArea()
             backdrop
-            ScrollView {
-                VStack(alignment: .leading, spacing: 30) {
-                    Spacer().frame(height: 250)
-                    header
-                        .padding(.horizontal, 36)
-                    if let cast = details.tmdb?.cast, !cast.isEmpty {
-                        CastMarquee(cast: cast) { person in
-                            withAnimation(Motion.page) { model.person = person.id }
-                        }
-                    }
-                    if item.kind == .series {
-                        EpisodesSection(item: item, details: details)
+            ScrollViewReader { reader in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 30) {
+                        Spacer().frame(height: 250)
+                        header
                             .padding(.horizontal, 36)
+                        if let cast = details.tmdb?.cast, !cast.isEmpty {
+                            CastMarquee(cast: cast) { person in
+                                withAnimation(Motion.page) { model.person = person.id }
+                            }
+                            .id(DetailsPage.castAnchor)
+                        }
+                        if item.kind == .series {
+                            EpisodesSection(item: item, details: details)
+                                .padding(.horizontal, 36)
+                        }
+                        TraktSection(details: details)
+                            .padding(.horizontal, 36)
+                        Spacer().frame(height: 40)
                     }
-                    TraktSection(details: details)
-                        .padding(.horizontal, 36)
-                    Spacer().frame(height: 40)
+                }
+                // The screenshot tour asks for the cast and comments to be shown.
+                .onReceive(NotificationCenter.default.publisher(for: DetailsPage.showCast)) { _ in
+                    reader.scrollTo(DetailsPage.castAnchor, anchor: .top)
                 }
             }
             Button {
@@ -115,6 +122,9 @@ struct DetailsPage: View {
     private func close() {
         withAnimation(Motion.page) { model.details = nil }
     }
+
+    static let castAnchor = "details.cast"
+    static let showCast = Notification.Name("CHUDDetailsShowCast")
 
     // MARK: Backdrop
 
