@@ -287,7 +287,9 @@ final class MPVPlayer: ObservableObject, Identifiable {
     var onLog: ((String, String) -> Void)?
 
     private(set) var core: MPVCore?
-    private weak var layer: MPVGLLayer?
+    /// For the OpenGL renderer: mpv's render context, created with the player so video output is
+    /// ready before any view appears (mpv turns video off if a file starts without one).
+    private(set) var gl: MPVGLRenderer?
 
     /// False if mpv couldn't start (the app then falls back to Apple's player).
     var isAvailable: Bool { core != nil }
@@ -312,12 +314,19 @@ final class MPVPlayer: ObservableObject, Identifiable {
         }
         core = MPVCore(options: all)
         core?.onEvents = { [weak self] events in self?.handle(events) }
+        if !metal, let core {
+            gl = MPVGLRenderer(core: core)
+            if gl == nil {
+                // No OpenGL: fall back to mpv's own Metal output rather than no picture at all.
+                ErrorLog.record("Player", detail: "OpenGL render context unavailable")
+            }
+        }
     }
 
     var usesMetal: Bool { metalLayer != nil }
 
     deinit {
-        layer?.detach()
+        gl?.destroy()
         core?.destroy(keepAlive: metalLayer)
     }
 
@@ -325,20 +334,6 @@ final class MPVPlayer: ObservableObject, Identifiable {
     var subtitleTracks: [MPVTrack] { tracks.filter { $0.type == "sub" } }
     var selectedSubtitle: MPVTrack? { subtitleTracks.first { $0.selected } }
     var selectedAudio: MPVTrack? { audioTracks.first { $0.selected } }
-
-    // MARK: Rendering
-
-    func attach(_ layer: MPVGLLayer) {
-        guard let core else { return }
-        if let current = self.layer, current !== layer { current.detach() }
-        self.layer = layer
-        layer.attach(core)
-    }
-
-    func detach(_ layer: MPVGLLayer) {
-        layer.detach()
-        if self.layer === layer { self.layer = nil }
-    }
 
     // MARK: Control
 
@@ -391,8 +386,8 @@ final class MPVPlayer: ObservableObject, Identifiable {
     func setOption(_ name: String, _ value: String) { core?.set(name, value) }
 
     func shutdown() {
-        layer?.detach()
-        layer = nil
+        gl?.destroy()
+        gl = nil
         metalLayer?.removeFromSuperlayer()
         core?.destroy(keepAlive: metalLayer)
         core = nil
@@ -503,7 +498,7 @@ final class MPVPlayer: ObservableObject, Identifiable {
     }
 }
 
-// MARK: - OpenGL layer
+// MARK: - OpenGL renderer
 
 private func mpvGetProcAddress(_ context: UnsafeMutableRawPointer?, _ name: UnsafePointer<CChar>?) -> UnsafeMutableRawPointer? {
     guard let name else { return nil }
@@ -514,50 +509,57 @@ private func mpvGetProcAddress(_ context: UnsafeMutableRawPointer?, _ name: Unsa
 
 private func mpvRenderUpdate(_ context: UnsafeMutableRawPointer?) {
     guard let context else { return }
-    let layer = Unmanaged<MPVGLLayer>.fromOpaque(context).takeUnretainedValue()
-    DispatchQueue.main.async { layer.renderUpdated() }
+    let renderer = Unmanaged<MPVGLRenderer>.fromOpaque(context).takeUnretainedValue()
+    DispatchQueue.main.async { renderer.updated() }
 }
 
-/// Draws one mpv instance's video. Created by MPVVideoView; attach an MPVPlayer to show its picture.
-final class MPVGLLayer: CAOpenGLLayer {
-    private var renderContext: OpaquePointer?
-    private var cglPixelFormat: CGLPixelFormatObj?
-    private var cglContext: CGLContextObj?
-    private var retainedSelf: Unmanaged<MPVGLLayer>?
+/// One player's OpenGL context and mpv render context. A view's MPVGLLayer draws with it; when no
+/// view is showing the player, new frames are consumed without drawing so playback keeps going.
+final class MPVGLRenderer {
+    let pixelFormat: CGLPixelFormatObj
+    let context: CGLContextObj
+    private(set) var renderContext: OpaquePointer?
+    /// The layer currently showing this player (set by MPVVideoView).
+    weak var layer: MPVGLLayer?
+    private var retained: Unmanaged<MPVGLRenderer>?
 
-    override init() {
-        super.init()
-        commonInit()
+    /// Frames drawn on screen by all players (the GitHub tour checks video really reaches the screen).
+    static var framesDrawn = 0
+
+    init?(core: MPVCore) {
+        guard let handle = core.handle, let made = MPVGLRenderer.makeContext() else { return nil }
+        let format = made.0
+        let context = made.1
+        pixelFormat = format
+        self.context = context
+        CGLSetCurrentContext(context)
+        defer { CGLSetCurrentContext(nil) }
+        var initParams = mpv_opengl_init_params(get_proc_address: mpvGetProcAddress, get_proc_address_ctx: nil)
+        let apiType = strdup(MPV_RENDER_API_TYPE_OPENGL)
+        defer { free(apiType) }
+        var created: OpaquePointer?
+        withUnsafeMutablePointer(to: &initParams) { initPointer in
+            var params = [
+                mpv_render_param(type: MPV_RENDER_PARAM_API_TYPE, data: UnsafeMutableRawPointer(apiType)),
+                mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, data: UnsafeMutableRawPointer(initPointer)),
+                mpv_render_param(),
+            ]
+            _ = params.withUnsafeMutableBufferPointer { buffer in
+                mpv_render_context_create(&created, handle, buffer.baseAddress)
+            }
+        }
+        guard let created else {
+            CGLReleaseContext(context)
+            CGLReleasePixelFormat(format)
+            return nil
+        }
+        renderContext = created
+        let retained = Unmanaged.passRetained(self)
+        self.retained = retained
+        mpv_render_context_set_update_callback(created, mpvRenderUpdate, retained.toOpaque())
     }
 
-    /// Core Animation copies layers for presentation; the copy never renders video, so it
-    /// gets no OpenGL context of its own.
-    override init(layer: Any) {
-        super.init(layer: layer)
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        commonInit()
-    }
-
-    private func commonInit() {
-        isOpaque = true
-        isAsynchronous = false
-        needsDisplayOnBoundsChange = true
-        backgroundColor = NSColor.black.cgColor
-        let (format, context) = MPVGLLayer.makeContext()
-        cglPixelFormat = format
-        cglContext = context
-    }
-
-    deinit {
-        detach()
-        if let cglContext { CGLReleaseContext(cglContext) }
-        if let cglPixelFormat { CGLReleasePixelFormat(cglPixelFormat) }
-    }
-
-    private static func makeContext() -> (CGLPixelFormatObj?, CGLContextObj?) {
+    private static func makeContext() -> (CGLPixelFormatObj, CGLContextObj)? {
         let attempts: [[CGLPixelFormatAttribute]] = [
             [kCGLPFAOpenGLProfile, CGLPixelFormatAttribute(UInt32(kCGLOGLPVersion_3_2_Core.rawValue)),
              kCGLPFAAccelerated, kCGLPFADoubleBuffer, kCGLPFAAllowOfflineRenderers, CGLPixelFormatAttribute(0)],
@@ -578,41 +580,30 @@ final class MPVGLLayer: CAOpenGLLayer {
             CGLSetParameter(context, kCGLCPSwapInterval, &swapInterval)
             return (format, context)
         }
-        return (nil, nil)
+        return nil
     }
 
-    // Core Animation releases what these "copy" methods return, so each hands out a retain.
-    override func copyCGLPixelFormat(forDisplayMask mask: UInt32) -> CGLPixelFormatObj {
-        if let cglPixelFormat { return CGLRetainPixelFormat(cglPixelFormat) }
-        return super.copyCGLPixelFormat(forDisplayMask: mask)
-    }
-
-    override func copyCGLContext(forPixelFormat pf: CGLPixelFormatObj) -> CGLContextObj {
-        if let cglContext { return CGLRetainContext(cglContext) }
-        return super.copyCGLContext(forPixelFormat: pf)
-    }
-
-    override func canDraw(inCGLContext ctx: CGLContextObj, pixelFormat pf: CGLPixelFormatObj,
-                          forLayerTime t: CFTimeInterval, displayTime ts: UnsafePointer<CVTimeStamp>?) -> Bool {
-        true
-    }
-
-    /// Frames drawn by all video layers (the GitHub tour checks video really reaches the screen).
-    static var framesDrawn = 0
-
-    override func draw(inCGLContext ctx: CGLContextObj, pixelFormat pf: CGLPixelFormatObj,
-                       forLayerTime t: CFTimeInterval, displayTime ts: UnsafePointer<CVTimeStamp>?) {
-        var viewport: [GLint] = [0, 0, 0, 0]
-        glGetIntegerv(GLenum(GL_VIEWPORT), &viewport)
-        guard let renderContext else {
-            glClearColor(0, 0, 0, 1)
-            glClear(GLbitfield(GL_COLOR_BUFFER_BIT))
-            glFlush()
-            return
+    /// mpv has a new frame (main thread).
+    fileprivate func updated() {
+        guard let renderContext else { return }
+        let flags = mpv_render_context_update(renderContext)
+        guard flags & UInt64(MPV_RENDER_UPDATE_FRAME.rawValue) != 0 else { return }
+        if let layer, layer.superlayer != nil {
+            // Drawn straight away (as IINA does): waiting for Core Animation's next pass can
+            // stall mpv, which waits for each frame to be shown.
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.display()
+            CATransaction.commit()
+        } else {
+            skipFrame()
         }
-        var framebuffer: GLint = 0
-        glGetIntegerv(GLenum(GL_DRAW_FRAMEBUFFER_BINDING), &framebuffer)
-        var fbo = mpv_opengl_fbo(fbo: Int32(framebuffer), w: Int32(viewport[2]), h: Int32(viewport[3]), internal_format: 0)
+    }
+
+    /// Draws the current frame into the framebuffer that's bound (called by the layer).
+    func render(framebuffer: Int32, width: Int32, height: Int32) {
+        guard let renderContext else { return }
+        var fbo = mpv_opengl_fbo(fbo: framebuffer, w: width, h: height, internal_format: 0)
         var flip: Int32 = 1
         withUnsafeMutablePointer(to: &fbo) { fboPointer in
             withUnsafeMutablePointer(to: &flip) { flipPointer in
@@ -628,67 +619,108 @@ final class MPVGLLayer: CAOpenGLLayer {
         }
         glFlush()
         mpv_render_context_report_swap(renderContext)
-        MPVGLLayer.framesDrawn += 1
+        MPVGLRenderer.framesDrawn += 1
     }
 
-    /// mpv has a new frame (or needs a redraw). Drawn straight away, as IINA does: waiting for
-    /// Core Animation's next redraw can stall mpv, which waits for each frame to be shown.
-    fileprivate func renderUpdated() {
+    /// Lets mpv move on to the next frame without drawing (no view is showing this player).
+    private func skipFrame() {
         guard let renderContext else { return }
-        let flags = mpv_render_context_update(renderContext)
-        if flags & UInt64(MPV_RENDER_UPDATE_FRAME.rawValue) != 0 {
-            drawNow()
-        }
-    }
-
-    private func drawNow() {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        display()
-        CATransaction.commit()
-    }
-
-    /// Creates mpv's render context in this layer's OpenGL context.
-    func attach(_ core: MPVCore) {
-        guard renderContext == nil, let handle = core.handle, let cglContext else { return }
-        CGLSetCurrentContext(cglContext)
+        CGLSetCurrentContext(context)
         defer { CGLSetCurrentContext(nil) }
-        var initParams = mpv_opengl_init_params(get_proc_address: mpvGetProcAddress, get_proc_address_ctx: nil)
-        let apiType = strdup(MPV_RENDER_API_TYPE_OPENGL)
-        defer { free(apiType) }
-        var created: OpaquePointer?
-        withUnsafeMutablePointer(to: &initParams) { initPointer in
-            var params = [
-                mpv_render_param(type: MPV_RENDER_PARAM_API_TYPE, data: UnsafeMutableRawPointer(apiType)),
-                mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, data: UnsafeMutableRawPointer(initPointer)),
-                mpv_render_param(),
-            ]
-            _ = params.withUnsafeMutableBufferPointer { buffer in
-                mpv_render_context_create(&created, handle, buffer.baseAddress)
+        var skip: Int32 = 1
+        var fbo = mpv_opengl_fbo(fbo: 0, w: 16, h: 16, internal_format: 0)
+        withUnsafeMutablePointer(to: &fbo) { fboPointer in
+            withUnsafeMutablePointer(to: &skip) { skipPointer in
+                var params = [
+                    mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_FBO, data: UnsafeMutableRawPointer(fboPointer)),
+                    mpv_render_param(type: MPV_RENDER_PARAM_SKIP_RENDERING, data: UnsafeMutableRawPointer(skipPointer)),
+                    mpv_render_param(),
+                ]
+                _ = params.withUnsafeMutableBufferPointer { buffer in
+                    mpv_render_context_render(renderContext, buffer.baseAddress)
+                }
             }
         }
-        guard let created else { return }
-        renderContext = created
-        let retained = Unmanaged.passRetained(self)
-        retainedSelf = retained
-        mpv_render_context_set_update_callback(created, mpvRenderUpdate, retained.toOpaque())
-        setNeedsDisplay()
+        mpv_render_context_report_swap(renderContext)
     }
 
-    /// Frees the render context. Safe to call more than once.
-    func detach() {
+    /// Frees the render context; must happen before mpv itself is destroyed. Safe to call twice.
+    func destroy() {
         guard let renderContext else { return }
-        if let cglContext { CGLSetCurrentContext(cglContext) }
+        CGLSetCurrentContext(context)
         mpv_render_context_set_update_callback(renderContext, nil, nil)
         mpv_render_context_free(renderContext)
         CGLSetCurrentContext(nil)
         self.renderContext = nil
-        // Released on the next turn: an update may already be queued for this layer.
-        if let retained = retainedSelf {
-            retainedSelf = nil
+        layer = nil
+        // Released on the next turn: an update may already be queued for this renderer.
+        if let retained {
+            self.retained = nil
             DispatchQueue.main.async { retained.release() }
         }
-        setNeedsDisplay()
+    }
+
+    deinit {
+        CGLReleaseContext(context)
+        CGLReleasePixelFormat(pixelFormat)
+    }
+}
+
+/// Shows one player's OpenGL renderer in a view.
+final class MPVGLLayer: CAOpenGLLayer {
+    private(set) var renderer: MPVGLRenderer?
+
+    init(renderer: MPVGLRenderer) {
+        self.renderer = renderer
+        super.init()
+        isOpaque = true
+        isAsynchronous = false
+        needsDisplayOnBoundsChange = true
+        backgroundColor = NSColor.black.cgColor
+    }
+
+    override init() {
+        super.init()
+    }
+
+    /// Core Animation copies layers for presentation; the copy never renders video.
+    override init(layer: Any) {
+        super.init(layer: layer)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    // Core Animation releases what these "copy" methods return, so each hands out a retain.
+    override func copyCGLPixelFormat(forDisplayMask mask: UInt32) -> CGLPixelFormatObj {
+        if let renderer { return CGLRetainPixelFormat(renderer.pixelFormat) }
+        return super.copyCGLPixelFormat(forDisplayMask: mask)
+    }
+
+    override func copyCGLContext(forPixelFormat pf: CGLPixelFormatObj) -> CGLContextObj {
+        if let renderer { return CGLRetainContext(renderer.context) }
+        return super.copyCGLContext(forPixelFormat: pf)
+    }
+
+    override func canDraw(inCGLContext ctx: CGLContextObj, pixelFormat pf: CGLPixelFormatObj,
+                          forLayerTime t: CFTimeInterval, displayTime ts: UnsafePointer<CVTimeStamp>?) -> Bool {
+        true
+    }
+
+    override func draw(inCGLContext ctx: CGLContextObj, pixelFormat pf: CGLPixelFormatObj,
+                       forLayerTime t: CFTimeInterval, displayTime ts: UnsafePointer<CVTimeStamp>?) {
+        var viewport: [GLint] = [0, 0, 0, 0]
+        glGetIntegerv(GLenum(GL_VIEWPORT), &viewport)
+        guard let renderer, renderer.renderContext != nil else {
+            glClearColor(0, 0, 0, 1)
+            glClear(GLbitfield(GL_COLOR_BUFFER_BIT))
+            glFlush()
+            return
+        }
+        var framebuffer: GLint = 0
+        glGetIntegerv(GLenum(GL_DRAW_FRAMEBUFFER_BINDING), &framebuffer)
+        renderer.render(framebuffer: Int32(framebuffer), width: Int32(viewport[2]), height: Int32(viewport[3]))
     }
 }
 
@@ -724,10 +756,11 @@ final class MPVMetalLayer: CAMetalLayer {
     }
 }
 
-/// Shows one MPVPlayer's picture. OpenGL players draw into this view's own layer; Metal players
-/// bring their layer, which moves here (so the mini player and full screen share one picture).
+/// Shows one MPVPlayer's picture. OpenGL players get a layer here that draws with their renderer;
+/// Metal players bring their own layer, which moves here (so the mini player and full screen share
+/// one picture).
 final class MPVVideoView: NSView {
-    private let glLayer = MPVGLLayer()
+    private var glLayer: MPVGLLayer? = nil
     private(set) weak var player: MPVPlayer?
 
     override init(frame frameRect: NSRect) {
@@ -744,10 +777,10 @@ final class MPVVideoView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.masksToBounds = true
-        glLayer.frame = bounds
-        glLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        layer?.addSublayer(glLayer)
     }
+
+    override var isOpaque: Bool { true }
+    override var isFlipped: Bool { true }
 
     // SwiftUI sizes this view by setting its frame; keep the video layers the same size.
     override func setFrameSize(_ newSize: NSSize) {
@@ -760,11 +793,13 @@ final class MPVVideoView: NSView {
         updateLayerFrames()
     }
 
-    override var isOpaque: Bool { true }
-    override var isFlipped: Bool { true }
-
     override func layout() {
         super.layout()
+        updateLayerFrames()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
         updateLayerFrames()
     }
 
@@ -772,20 +807,17 @@ final class MPVVideoView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let scale = window?.backingScaleFactor ?? 2
-        glLayer.frame = bounds
-        glLayer.contentsScale = scale
+        if let glLayer {
+            glLayer.frame = bounds
+            glLayer.contentsScale = scale
+        }
         if let metal = player?.metalLayer, metal.superlayer === layer {
             metal.frame = bounds
             metal.contentsScale = scale
             metal.drawableSize = CGSize(width: bounds.width * scale, height: bounds.height * scale)
         }
         CATransaction.commit()
-        glLayer.setNeedsDisplay()
-    }
-
-    override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        needsLayout = true
+        glLayer?.setNeedsDisplay()
     }
 
     func show(_ player: MPVPlayer?) {
@@ -796,25 +828,25 @@ final class MPVVideoView: NSView {
         if let metal = player.metalLayer {
             metal.removeFromSuperlayer()
             layer?.addSublayer(metal)
-            glLayer.isHidden = true
-            needsLayout = true
-        } else {
-            glLayer.isHidden = false
-            player.attach(glLayer)
+        } else if let renderer = player.gl {
+            let created = MPVGLLayer(renderer: renderer)
+            created.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+            layer?.addSublayer(created)
+            glLayer = created
+            renderer.layer = created
         }
+        updateLayerFrames()
     }
 
     func clear() {
-        guard let player else { return }
-        if let metal = player.metalLayer {
-            if metal.superlayer === layer { metal.removeFromSuperlayer() }
-        } else {
-            player.detach(glLayer)
+        if let player, let metal = player.metalLayer, metal.superlayer === layer {
+            metal.removeFromSuperlayer()
         }
-        self.player = nil
-    }
-
-    deinit {
-        glLayer.detach()
+        if let glLayer {
+            if glLayer.renderer?.layer === glLayer { glLayer.renderer?.layer = nil }
+            glLayer.removeFromSuperlayer()
+        }
+        glLayer = nil
+        player = nil
     }
 }
