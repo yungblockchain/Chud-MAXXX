@@ -139,7 +139,8 @@ jobs:
           export CHUD_OPENSUBS_API=$S/opensubs/api/v1 CHUD_CLAUDE_API=$S/claude CHUD_GITHUB_API=$S/github CHUD_TELEGRAM_API=$S/telegram
           export CHUD_TEST_KEY_TMDB=test CHUD_TEST_KEY_TRAKT=test CHUD_TEST_KEY_OPENSUBTITLES=test CHUD_TEST_KEY_CLAUDE=test
           set +e
-          perl -e 'alarm shift; exec @ARGV' 1500 "build/CHUD STREAMS.app/Contents/MacOS/ChudStreams" > tour.log 2>&1
+          # exec { program } list: runs the path as one argument even though it contains a space.
+          perl -e 'alarm shift; exec { $ARGV[0] } @ARGV or die "cannot run: $!"' 1500 "$PWD/build/CHUD STREAMS.app/Contents/MacOS/ChudStreams" > tour.log 2>&1
           code=$?
           set -e
           grep -E "^\[tour\]" tour.log | tail -80 || true
