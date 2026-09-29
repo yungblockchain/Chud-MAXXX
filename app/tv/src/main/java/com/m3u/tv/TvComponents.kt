@@ -487,7 +487,8 @@ fun FocusFrame(
                 scaleX = grown
                 scaleY = grown
                 shadowElevation = if (glow) FOCUS_GLOW.toPx() else 0f
-                shape = hud
+                // "this.": FocusFrame's own [shape] parameter would shadow the layer's.
+                this.shape = hud
                 clip = true
                 ambientShadowColor = TvColors.Focus
                 spotShadowColor = TvColors.Focus
