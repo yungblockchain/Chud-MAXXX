@@ -1,5 +1,11 @@
 package com.m3u.tv
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -34,6 +40,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Extension
@@ -68,6 +77,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -157,9 +167,16 @@ fun TvBrowsePane(
     guideContent: @Composable () -> Unit = {},
     claudeContent: @Composable () -> Unit = {},
     dialSettingsContent: @Composable () -> Unit = {},
+    playbackSettingsContent: @Composable () -> Unit = {},
+    modifier: Modifier = Modifier,
+    favouritesContent: @Composable () -> Unit = {},
+    trending: List<TrendingEntry> = emptyList(),
+    onOpenTrending: (TrendingEntry) -> Unit = {},
+    myLibraryContent: @Composable () -> Unit = {},
+    servicesSettingsContent: @Composable () -> Unit = {},
 ) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
@@ -173,8 +190,17 @@ fun TvBrowsePane(
             // Dial: first run goes straight to Xtream sign-in on the TV itself, instead of
             // asking for the phone app. Pairing from the phone app still works as before.
             XtreamSignInScreen(requestInitialFocus = destination == TvDestination.Home)
-        } else {
-            when (destination) {
+        } else AnimatedContent(
+            targetState = destination,
+            transitionSpec = {
+                (fadeIn(tween(TAB_IN_MS, delayMillis = TAB_OUT_MS / 2)) +
+                    slideInVertically(tween(TAB_IN_MS)) { it / TAB_SLIDE_DIVISOR })
+                    .togetherWith(fadeOut(tween(TAB_OUT_MS)))
+            },
+            label = "tv-destination",
+            modifier = Modifier.fillMaxSize(),
+        ) { shown ->
+            when (shown) {
                 TvDestination.Home -> HomeScreen(
                     state = state,
                     onOpenLibrary = onOpenLibrary,
@@ -182,6 +208,8 @@ fun TvBrowsePane(
                     onPlay = onPlay,
                     onPlayRecent = onPlayRecent,
                     continueWatching = continueWatching,
+                    trending = trending,
+                    onOpenTrending = onOpenTrending,
                 )
 
                 TvDestination.Library -> LibraryScreen(
@@ -193,12 +221,9 @@ fun TvBrowsePane(
                     onSearch = onSearch,
                 )
 
-                TvDestination.Favorites -> ChannelGridScreen(
-                    title = stringResource(string.tv_favorites_title),
-                    subtitle = stringResource(string.tv_favorites_subtitle),
-                    channels = state.favorites,
-                    onPlay = onPlay
-                )
+                TvDestination.Favorites -> favouritesContent()
+
+                TvDestination.MyLibrary -> myLibraryContent()
 
                 TvDestination.Guide -> guideContent()
 
@@ -211,8 +236,26 @@ fun TvBrowsePane(
                 TvDestination.Account -> XtreamAccountScreen()
 
                 TvDestination.Status -> DialSettingsPane(
-                    dialContent = dialSettingsContent,
-                    sourcesContent = {
+                    tabs = listOf(
+                        SettingsTab(
+                            label = stringResource(R.string.dial_settings_tab_dial),
+                            icon = Icons.Rounded.Tune,
+                            content = dialSettingsContent,
+                        ),
+                        SettingsTab(
+                            label = stringResource(R.string.dial_settings_tab_playback),
+                            icon = Icons.Rounded.PlayCircle,
+                            content = playbackSettingsContent,
+                        ),
+                        SettingsTab(
+                            label = stringResource(R.string.dial_settings_tab_services),
+                            icon = Icons.Rounded.Key,
+                            content = servicesSettingsContent,
+                        ),
+                        SettingsTab(
+                            label = stringResource(R.string.dial_settings_tab_sources),
+                            icon = Icons.Rounded.Extension,
+                            content = {
                         StatusScreen(
                             state = state,
                             onExternalExtensionsEnabled = onExternalExtensionsEnabled,
@@ -234,7 +277,9 @@ fun TvBrowsePane(
                             onUpdateProviderSetting = onUpdateProviderSetting,
                             onSubmitProviderSubscription = onSubmitProviderSubscription,
                         )
-                    },
+                            },
+                        ),
+                    ),
                 )
             }
         }
@@ -249,11 +294,20 @@ private fun HomeScreen(
     onPlay: (Channel) -> Unit,
     onPlayRecent: () -> Unit,
     continueWatching: List<Channel> = emptyList(),
+    trending: List<TrendingEntry> = emptyList(),
+    onOpenTrending: (TrendingEntry) -> Unit = {},
 ) {
-    val featuredChannels = remember(state.recent, state.channels) {
-        (listOfNotNull(state.recent) + state.channels)
-            .distinctBy { it.id }
-            .take(10)
+    // The last ten things watched (live, films, episodes); before anything's been watched, a
+    // taste of the selected playlist.
+    val watchedBefore = state.recentlyPlayed.isNotEmpty()
+    val featuredChannels = remember(state.recentlyPlayed, state.recent, state.channels) {
+        if (state.recentlyPlayed.isNotEmpty()) {
+            state.recentlyPlayed
+        } else {
+            (listOfNotNull(state.recent) + state.channels)
+                .distinctBy { it.id }
+                .take(10)
+        }
     }
     var highlightedChannel by remember { mutableStateOf<Channel?>(null) }
     val activeChannel = highlightedChannel ?: featuredChannels.firstOrNull() ?: state.heroChannel
@@ -291,8 +345,16 @@ private fun HomeScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SectionTitle(
-                        title = stringResource(string.tv_section_recent_channels),
-                        subtitle = stringResource(string.tv_section_recent_channels_hint),
+                        title = if (watchedBefore) {
+                            stringResource(R.string.dial_home_last_watched)
+                        } else {
+                            stringResource(string.tv_section_recent_channels)
+                        },
+                        subtitle = if (watchedBefore) {
+                            stringResource(R.string.dial_home_last_watched_hint)
+                        } else {
+                            stringResource(string.tv_section_recent_channels_hint)
+                        },
                         modifier = Modifier.padding(start = 48.dp)
                     )
                     ContentRow(
@@ -302,6 +364,11 @@ private fun HomeScreen(
                         firstItemFocusRequester = firstFeaturedFocusRequester
                     )
                 }
+            }
+        }
+        if (trending.isNotEmpty()) {
+            item(key = "trending") {
+                TrendingRow(entries = trending, onOpen = onOpenTrending)
             }
         }
         // Dial: films and series with saved progress, opened on their details page.
@@ -392,9 +459,10 @@ private fun FeaturedCarouselPane(
         focusedScale = 1f,
         focusedBorderWidth = 0.dp,
         focusedBorderColor = Color.Transparent,
+        // A set height, so the backdrop picture never decides how tall the hero is.
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = largeTextLayout.heroMinHeightDp.dp)
+            .height(maxOf(largeTextLayout.heroMinHeightDp, HERO_HEIGHT_DP).dp)
             .focusProperties { down = nextFocusRequester },
         onKey = { event ->
             if (event.type != KeyEventType.KeyDown || !secondaryAvailable) {
@@ -434,7 +502,8 @@ private fun FeaturedCarouselPane(
             if (channel != null) {
                 PosterArt(
                     model = channel.cover,
-                    modifier = Modifier.fillMaxSize()
+                    fitLogos = false,
+                    modifier = Modifier.matchParentSize()
                 )
             }
             Box(
@@ -594,7 +663,7 @@ private fun LibraryScreen(
     ) {
         item {
             SectionTitle(
-                title = stringResource(string.tv_library_title),
+                title = stringResource(R.string.dial_nav_browse),
                 subtitle = stringResource(string.tv_library_subtitle)
             )
             LazyRow(
@@ -720,6 +789,7 @@ internal fun CategoryChips(
 ) {
     val uncategorised = stringResource(R.string.dial_category_uncategorised)
     val total = remember(state.categories) { state.categories.sumOf { it.count } }
+    val categoryMenu = LocalCategoryMenu.current
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = modifier.focusGroup()
@@ -735,7 +805,9 @@ internal fun CategoryChips(
             }
         }
         items(state.categories, key = { "category-${it.name}" }) { category ->
+            val chipRequester = remember { FocusRequester() }
             TvActionButton(
+                focusRequester = chipRequester,
                 text = stringResource(
                     R.string.dial_category_chip,
                     category.name.ifBlank { uncategorised },
@@ -744,40 +816,9 @@ internal fun CategoryChips(
                 icon = Icons.Rounded.Category,
                 selected = state.selectedCategory == category.name,
                 onClick = { onSelectCategory(category.name) },
+                onLongClick = categoryMenu?.let { menu -> { menu(category.name, chipRequester) } },
             )
         }
-    }
-}
-
-@Composable
-private fun ChannelGridScreen(
-    title: String,
-    subtitle: String,
-    channels: List<Channel>,
-    onPlay: (Channel) -> Unit
-) {
-    val firstChannelFocusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(channels.size) {
-        if (channels.isNotEmpty()) {
-            yield()
-            firstChannelFocusRequester.requestFocus()
-        }
-    }
-
-    Column(
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(start = 48.dp, top = 48.dp, end = 64.dp, bottom = 48.dp)
-            .focusGroup()
-    ) {
-        SectionTitle(title = title, subtitle = subtitle)
-        ChannelGrid(
-            channels = channels,
-            onPlay = onPlay,
-            firstItemFocusRequester = firstChannelFocusRequester
-        )
     }
 }
 
@@ -2693,6 +2734,7 @@ private fun TvExtensionSettingControl(
             ExtensionSettingType.SECRET -> {
                 var focused by remember { mutableStateOf(false) }
                 val actionFocusRequester = remember(field.key) { FocusRequester() }
+                val extensionKeyboard = LocalSoftwareKeyboardController.current
                 val singleLineInput =
                     field.type != ExtensionSettingType.TEXT || field.networkOrigin
                 if (field.type == ExtensionSettingType.SECRET && secretConfigured) {
@@ -2715,6 +2757,11 @@ private fun TvExtensionSettingControl(
 
                                     Key.DirectionDown ->
                                         actionFocusRequester.requestFocus()
+
+                                    Key.DirectionCenter, Key.Enter -> {
+                                        extensionKeyboard?.show()
+                                        true
+                                    }
 
                                     else -> false
                                 }
@@ -2757,6 +2804,7 @@ private fun TvExtensionSettingControl(
                                 else -> KeyboardType.Text
                             },
                             autoCorrectEnabled = false,
+                            showKeyboardOnFocus = false,
                         ),
                         visualTransformation = if (field.type == ExtensionSettingType.SECRET) {
                             PasswordVisualTransformation()
@@ -2825,7 +2873,7 @@ private fun tvExtensionCapabilityNameResource(capabilityId: String): Int? = when
 }
 
 @Composable
-private fun ContentRow(
+internal fun ContentRow(
     channels: List<Channel>,
     onPlay: (Channel) -> Unit,
     onFocused: (Channel) -> Unit = {},
@@ -2852,7 +2900,7 @@ private fun ContentRow(
 }
 
 @Composable
-private fun ChannelGrid(
+internal fun ChannelGrid(
     channels: List<Channel>,
     onPlay: (Channel) -> Unit,
     modifier: Modifier = Modifier.fillMaxSize(),
@@ -3037,3 +3085,11 @@ private fun SetupStep(text: String) {
         )
     }
 }
+
+// Tab changes: a quick fade and a short rise, light enough for a Fire TV Stick.
+private const val TAB_IN_MS = 220
+private const val TAB_OUT_MS = 120
+private const val TAB_SLIDE_DIVISOR = 28
+
+/** Home hero height on a 1080p screen (about 60% of it). */
+private const val HERO_HEIGHT_DP = 320

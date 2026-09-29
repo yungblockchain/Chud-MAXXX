@@ -7,13 +7,29 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class MarketSection { Trending, PumpFun, New, Watchlist, Search }
+enum class MarketSection { Trending, PumpFun, Robinhood, New, Hyperliquid, TopCoins, Watchlist, Search }
+
+/** Sections that list every chain's pools (the chain chips apply to these). */
+val MarketSection.filtersByChain: Boolean
+    get() = this != MarketSection.Hyperliquid && this != MarketSection.TopCoins
+
+@Immutable
+data class ChartState(
+    val key: String,
+    val range: ChartRange,
+    val candles: List<Candle> = emptyList(),
+    val loading: Boolean = true,
+)
 
 @Immutable
 data class MarketsState(
@@ -30,6 +46,7 @@ data class MarketsState(
 @HiltViewModel
 class MarketsViewModel @Inject constructor(
     private val store: DialSettingsStore,
+    private val secrets: SecretStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MarketsState())
@@ -38,6 +55,70 @@ class MarketsViewModel @Inject constructor(
     val watchlist: StateFlow<List<String>> = store.watchlist
 
     private var loadJob: Job? = null
+
+    private val _chart = MutableStateFlow<ChartState?>(null)
+    val chart: StateFlow<ChartState?> = _chart.asStateFlow()
+    private val chartCache = mutableMapOf<Pair<String, ChartRange>, Pair<Long, List<Candle>>>()
+    private var chartJob: Job? = null
+
+    private val _range = MutableStateFlow(ChartRange.Day)
+    val range: StateFlow<ChartRange> = _range.asStateFlow()
+
+    /** One-line notices (string resources) for a toast. */
+    private val _messages = MutableSharedFlow<Int>(extraBufferCapacity = 4)
+    val messages: SharedFlow<Int> = _messages.asSharedFlow()
+
+    val tradingBot: String? get() = secrets.get(SecretName.TelegramTradingBot)
+
+    fun selectRange(range: ChartRange) {
+        _range.value = range
+    }
+
+    /** Candles for the token in the side panel; cached for a minute per token and range. */
+    fun loadChart(pair: MarketPair, range: ChartRange = _range.value) {
+        val cacheKey = pair.key to range
+        val cached = chartCache[cacheKey]
+        if (cached != null && System.currentTimeMillis() - cached.first < CHART_TTL_MS) {
+            _chart.value = ChartState(pair.key, range, cached.second, loading = false)
+            return
+        }
+        chartJob?.cancel()
+        _chart.update { current ->
+            // Keep the old line on screen while the new one loads.
+            if (current?.key == pair.key && current.range == range) current.copy(loading = true)
+            else ChartState(pair.key, range)
+        }
+        chartJob = viewModelScope.launch {
+            // Let focus settle while scrolling the list before asking the server.
+            delay(CHART_DEBOUNCE_MS)
+            val candles = runCatching { candlesFor(pair, range) }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrDefault(emptyList())
+            if (candles.isNotEmpty()) chartCache[cacheKey] = System.currentTimeMillis() to candles
+            _chart.update { current ->
+                if (current?.key == pair.key && current.range == range) current.copy(candles = candles, loading = false)
+                else current
+            }
+        }
+    }
+
+    /** Sends the token's summary and links to the person's own Telegram chat. */
+    fun sendToTelegram(pair: MarketPair) {
+        val token = secrets.get(SecretName.TelegramBotToken)
+        val chat = secrets.get(SecretName.TelegramChatId)
+        if (token == null || chat == null) {
+            _messages.tryEmit(R.string.dial_markets_telegram_setup)
+            return
+        }
+        viewModelScope.launch {
+            val result = runCatching {
+                TelegramBot.send(token, chat, TelegramBot.summary(pair, tokenLinks(pair, tradingBot)))
+            }.onFailure { if (it is CancellationException) throw it }
+            _messages.tryEmit(
+                if (result.isSuccess) R.string.dial_markets_telegram_sent else R.string.dial_markets_telegram_failed
+            )
+        }
+    }
 
     fun selectSection(section: MarketSection) {
         if (_state.value.section == section) return
@@ -92,9 +173,25 @@ class MarketsViewModel @Inject constructor(
                 .take(MAX_TOKENS)
             DexScreener.tokens(refs)
         }
-        MarketSection.Watchlist -> DexScreener.tokens(
-            store.watchlist.value.mapNotNull { TokenRef.fromWatchKey(it) }
-        )
+        MarketSection.Robinhood -> {
+            val trending = runCatching { GeckoTerminal.trendingTokens("robinhood", ROBINHOOD) }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrDefault(emptyList())
+            val boosted = (DexScreener.topBoosted() + DexScreener.latestProfiles())
+                .filter { it.chainId == ROBINHOOD }
+            DexScreener.tokens((trending + boosted).distinctBy { it.watchKey.lowercase() }.take(MAX_TOKENS))
+        }
+        MarketSection.Hyperliquid -> Hyperliquid.perps().take(MAX_TOKENS)
+        MarketSection.TopCoins -> topCoins()
+        MarketSection.Watchlist -> {
+            val refs = store.watchlist.value.mapNotNull { TokenRef.fromWatchKey(it) }
+            val onChain = refs.filter { it.chainId != CHAIN_HYPERLIQUID && it.chainId != CHAIN_COIN }
+            val perps = refs.filter { it.chainId == CHAIN_HYPERLIQUID }.map { it.tokenAddress }.toSet()
+            val coins = refs.filter { it.chainId == CHAIN_COIN }.map { it.tokenAddress }.toSet()
+            DexScreener.tokens(onChain) +
+                (if (perps.isEmpty()) emptyList() else Hyperliquid.perps().filter { it.baseAddress in perps }) +
+                (if (coins.isEmpty()) emptyList() else topCoins().filter { it.baseAddress in coins })
+        }
         MarketSection.Search -> {
             val trimmed = query.trim()
             if (trimmed.isEmpty()) emptyList()
@@ -107,7 +204,17 @@ class MarketsViewModel @Inject constructor(
         }
     }
 
+    /** CoinMarketCap with the person's key; CoinGecko (no key needed) otherwise. */
+    private suspend fun topCoins(): List<MarketPair> =
+        secrets.get(SecretName.CoinMarketCap)
+            ?.let { key -> runCatching { TopCoins.coinMarketCap(key) }.getOrNull() }
+            ?.takeIf { it.isNotEmpty() }
+            ?: TopCoins.coinGecko()
+
     private companion object {
         const val MAX_TOKENS = 60
+        const val ROBINHOOD = "robinhood"
+        const val CHART_TTL_MS = 60_000L
+        const val CHART_DEBOUNCE_MS = 300L
     }
 }

@@ -25,6 +25,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -83,6 +84,10 @@ sealed interface XtreamAccountStatus {
 internal object XtreamClient {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private const val MAX_BODY_CHARS = 512 * 1024
+    private const val LOGIN_CONNECT_TIMEOUT_MS = 30_000
+    private const val LOGIN_READ_TIMEOUT_MS = 60_000
+    private const val LOGIN_RETRY_WAIT_MS = 2_000L
+    private val RETRIED_PROBLEMS = setOf(XtreamProblem.Timeout, XtreamProblem.Refused, XtreamProblem.Generic)
 
     /** Turns "example.com:8080/", "http://example.com:8080/c/" etc. into "http://example.com:8080". */
     fun normalizeServer(input: String): String? {
@@ -115,7 +120,22 @@ internal object XtreamClient {
         return XtreamCredentials(server, username, password)
     }
 
-    suspend fun fetchAccount(credentials: XtreamCredentials): XtreamAccountStatus =
+    /**
+     * Checks the login. Busy panels can take a long time to answer, so the wait is generous, and
+     * a timeout or refused connection gets one more try before it counts.
+     */
+    suspend fun fetchAccount(credentials: XtreamCredentials): XtreamAccountStatus {
+        val first = fetchAccountOnce(credentials)
+        if (first !is XtreamAccountStatus.Unreachable ||
+            first.problem !in RETRIED_PROBLEMS
+        ) {
+            return first
+        }
+        delay(LOGIN_RETRY_WAIT_MS)
+        return fetchAccountOnce(credentials)
+    }
+
+    private suspend fun fetchAccountOnce(credentials: XtreamCredentials): XtreamAccountStatus =
         withContext(Dispatchers.IO) {
             val url = buildString {
                 append(credentials.server)
@@ -128,8 +148,8 @@ internal object XtreamClient {
             var connection: HttpURLConnection? = null
             try {
                 connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 10_000
-                    readTimeout = 15_000
+                    connectTimeout = LOGIN_CONNECT_TIMEOUT_MS
+                    readTimeout = LOGIN_READ_TIMEOUT_MS
                     instanceFollowRedirects = true
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("User-Agent", "ChudStreams/1.0 (Android TV)")

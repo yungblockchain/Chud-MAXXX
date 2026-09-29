@@ -1,7 +1,20 @@
 package com.m3u.tv
 
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.os.Process
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -10,46 +23,63 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.Player
 import androidx.tv.material3.Text
 import com.m3u.data.database.model.Channel
 import com.m3u.data.database.model.isSeries
 import com.m3u.data.database.model.isVod
 import com.m3u.data.tv.model.keyCode
 import com.m3u.i18n.R.string
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 
 /** Launch extra naming the tab to open first, e.g. `--es destination games` (see [tvDestinationFromExtra]). */
 const val EXTRA_DESTINATION = "destination"
@@ -64,17 +94,50 @@ fun tvDestinationFromExtra(value: String?): TvDestination? {
     return TvDestination.entries.firstOrNull { it.name.lowercase() == name }
 }
 
+/** How long a screen gets to take focus itself before the app puts focus in it. */
+private const val FOCUS_RESCUE_MS = 450L
+
+/** How long the "press Back again" hint waits for the second press. */
+private const val EXIT_WINDOW_MS = 2_500L
+
+/**
+ * Closes the app for good: the screen goes, then the process, so nothing stays in memory.
+ * (Android would otherwise keep it cached in the background.)
+ */
+private fun closeAppCompletely(activity: Activity) {
+    activity.finishAndRemoveTask()
+    Handler(Looper.getMainLooper()).postDelayed(
+        { Process.killProcess(Process.myPid()) },
+        EXIT_PROCESS_DELAY_MS,
+    )
+}
+
+private const val EXIT_PROCESS_DELAY_MS = 400L
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 @Composable
 fun App(
     initialDestination: TvDestination? = null,
     viewModel: TvHomeViewModel = hiltViewModel(),
     dial: DialViewModel = hiltViewModel(),
+    claude: ClaudeViewModel = hiltViewModel(),
+    metadata: MetadataViewModel = hiltViewModel(),
+    services: ServicesSettingsViewModel = hiltViewModel(),
+    accounts: XtreamAccountViewModel = hiltViewModel(),
+    multiview: MultiviewViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val player by viewModel.player.collectAsStateWithLifecycle()
     val currentChannel by viewModel.currentChannel.collectAsStateWithLifecycle()
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val reconnecting by viewModel.reconnecting.collectAsStateWithLifecycle()
+    val playbackFailed by viewModel.playbackFailed.collectAsStateWithLifecycle()
     val remoteControlCode by viewModel.remoteControlCode.collectAsStateWithLifecycle()
     val view = LocalView.current
     val localeTag = LocalConfiguration.current.locales[0].toLanguageTag()
@@ -87,11 +150,15 @@ fun App(
         viewModel.releasePlayer()
         surface = TvSurface.Browse
     }
+    val minimizePlayer = { surface = TvSurface.Mini }
+    // Browsing, with or without the mini player in the corner.
+    val onBrowse = surface == TvSurface.Browse || surface == TvSurface.Mini
 
     // Dial: settings, details pages, continue watching.
     val preferences by dial.preferences.collectAsStateWithLifecycle()
     val details by dial.details.collectAsStateWithLifecycle()
     val continueWatching by dial.continueWatching.collectAsStateWithLifecycle()
+    val nowPlaying by dial.nowPlaying.collectAsStateWithLifecycle()
 
     // What's playing, and whether up/down should flip channels. Flipping walks the list the channel
     // was opened from: the selected playlist if it's in there, otherwise favourites.
@@ -175,9 +242,153 @@ fun App(
     }
     LaunchedEffect(playingId, live, playingPlaylist != null) {
         if (playingId != null && live && playingPlaylist != null) dial.rememberLastChannel(playingId)
+        if (live || catchUp) dial.clearNowPlaying()
     }
+
+    // Menus at the fastest refresh rate the Fire TV offers at this resolution.
+    LaunchedEffect(preferences.fastMenus, surface) {
+        if (surface == TvSurface.Browse || surface == TvSurface.Mini) {
+            view.context.findActivity()?.let { DisplayModes.applyMenuMode(it, preferences.fastMenus) }
+        }
+    }
+
+    // Up next: when an episode finishes, the following one starts after a short countdown.
+    val upNext = if (
+        surface == TvSurface.Player &&
+        playbackState == Player.STATE_ENDED &&
+        preferences.autoplayNextEpisode
+    ) {
+        remember(playingId, nowPlaying) { dial.nextEpisode() }
+    } else null
     LaunchedEffect(surface) {
-        if (surface == TvSurface.Browse) dial.refreshAfterPlayback()
+        if (surface == TvSurface.Browse || surface == TvSurface.Mini) {
+            dial.refreshAfterPlayback()
+            viewModel.refreshRecentlyPlayed()
+        }
+    }
+
+    // TMDB and Trakt (with the person's own keys).
+    val trending by metadata.trending.collectAsStateWithLifecycle()
+    val detailsExtras by metadata.extras.collectAsStateWithLifecycle()
+    val person by metadata.person.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val notInPlaylists = stringResource(R.string.dial_trending_not_found)
+    LaunchedEffect(destination) {
+        if (destination == TvDestination.Home) metadata.loadTrending()
+    }
+    LaunchedEffect(details?.channel?.id, details?.loading) {
+        val current = details ?: return@LaunchedEffect
+        if (!current.loading) metadata.loadExtras(current)
+    }
+    val openTmdbTitle: (TmdbTitle, Channel?) -> Unit = { title, known ->
+        scope.launch {
+            val channel = known ?: metadata.findInCatalogue(title)
+            if (channel == null) {
+                Toast.makeText(context, notInPlaylists.format(title.title), Toast.LENGTH_SHORT).show()
+            } else {
+                metadata.closePerson()
+                openOrPlay(channel)
+            }
+        }
+    }
+
+    // The phone page: what's typed on the phone lands here.
+    val keySaved = stringResource(R.string.dial_phone_key_saved)
+    LaunchedEffect(services) {
+        services.phoneMessages.collect { message ->
+            when (message) {
+                is PhoneMessage.Search -> {
+                    destination = TvDestination.Library
+                    viewModel.search(message.query)
+                }
+                is PhoneMessage.AskClaude -> {
+                    destination = TvDestination.Claude
+                    claude.send(message.question)
+                }
+                is PhoneMessage.XtreamLogin -> {
+                    destination = TvDestination.Account
+                    accounts.setMode(SignInMode.Xtream)
+                    accounts.updateServer(message.server)
+                    accounts.updateUsername(message.username)
+                    accounts.updatePassword(message.password)
+                }
+                is PhoneMessage.M3uPlaylist -> {
+                    destination = TvDestination.Account
+                    accounts.setMode(SignInMode.M3u)
+                    accounts.updatePlaylistUrl(message.url)
+                    accounts.updateEpgUrl(message.epgUrl)
+                }
+                is PhoneMessage.KeySaved -> Toast.makeText(context, keySaved, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // Error reports: a stream that stopped for good (after the automatic retries).
+    val playbackError by viewModel.playbackError.collectAsStateWithLifecycle()
+    LaunchedEffect(playbackFailed, playbackError) {
+        if (!playbackFailed) return@LaunchedEffect
+        val channel = currentChannel ?: return@LaunchedEffect
+        val host = runCatching { Uri.parse(channel.url).host }.getOrNull() ?: "?"
+        withContext(Dispatchers.IO) {
+            CrashReports.recordError(
+                context = context,
+                title = "Stream stopped: ${channel.title}",
+                details = "Error: ${playbackError ?: "unknown"}\nLive: $live\nServer: $host",
+            )
+        }
+    }
+    // Send saved reports when the app starts, if that's switched on.
+    LaunchedEffect(Unit) {
+        if (dial.preferences.value.autoSendReports) services.sendReports()
+    }
+
+    // Multiview: the main player stops (the Fire TV has few video decoders), tiles take over.
+    val openMultiview: (Channel) -> Unit = { channel ->
+        viewModel.releasePlayer()
+        multiview.add(channel)
+        surface = TvSurface.Multiview
+    }
+
+    // Hold-OK menus.
+    val favouriteGroups by dial.favouriteGroups.collectAsStateWithLifecycle()
+    val groupChannels by dial.groupChannels.collectAsStateWithLifecycle()
+    var menuChannel by remember { mutableStateOf<Channel?>(null) }
+    var menuCategory by remember { mutableStateOf<String?>(null) }
+    var menuReturnFocus by remember { mutableStateOf<FocusRequester?>(null) }
+    var browseHasFocus by remember { mutableStateOf(false) }
+    val contentFocus = remember { FocusRequester() }
+    val openChannelMenu = remember {
+        { channel: Channel, requester: FocusRequester ->
+            menuReturnFocus = requester
+            menuChannel = channel
+        }
+    }
+    val openCategoryMenu = remember {
+        { name: String, requester: FocusRequester ->
+            menuReturnFocus = requester
+            menuCategory = name
+        }
+    }
+    // Back on the card or chip the menu was opened from.
+    LaunchedEffect(menuChannel == null && menuCategory == null) {
+        val target = menuReturnFocus ?: return@LaunchedEffect
+        if (menuChannel != null || menuCategory != null) return@LaunchedEffect
+        yield()
+        runCatching { target.requestFocus() }
+        menuReturnFocus = null
+    }
+    fun kindOf(channel: Channel): MenuItemKind {
+        val playlist = state.playlists.firstOrNull { it.url == channel.playlistUrl }
+        return when {
+            playlist?.isSeries == true -> MenuItemKind.Series
+            playlist?.isVod == true -> MenuItemKind.Film
+            else -> MenuItemKind.Live
+        }
+    }
+    val askClaudePrompt = stringResource(R.string.dial_menu_ask_claude_prompt)
+    fun askClaudeAbout(channel: Channel) {
+        claude.send(askClaudePrompt.format(channel.title, channel.category))
+        destination = TvDestination.Claude
     }
 
     val backTarget = tvAppBackTarget(
@@ -192,6 +403,63 @@ fun App(
             TvAppBackTarget.EXTENSION_SETTINGS -> viewModel.closeExtensionSettings()
             TvAppBackTarget.ACTIVITY -> Unit
         }
+    }
+
+    // Back on the main menu: the first press says "press again", the second closes the app
+    // completely (the process ends, so everything it held in memory is freed). Screens with their
+    // own Back step (a game, a details page) handle Back first.
+    var exitArmedAt by remember { mutableLongStateOf(0L) }
+    var exitHintVisible by remember { mutableStateOf(false) }
+    BackHandler(
+        enabled = backTarget == TvAppBackTarget.ACTIVITY && details == null &&
+            !showSplash && preferences.backTwiceToExit && surface == TvSurface.Browse
+    ) {
+        val now = SystemClock.uptimeMillis()
+        if (exitHintVisible && now - exitArmedAt < EXIT_WINDOW_MS) {
+            viewModel.releasePlayer()
+            view.context.findActivity()?.let(::closeAppCompletely)
+        } else {
+            exitArmedAt = now
+            exitHintVisible = true
+        }
+    }
+    // With the mini player showing, Back closes it first.
+    BackHandler(enabled = surface == TvSurface.Mini && details == null, onBack = closePlayer)
+    // No screensaver while video plays, loads or reconnects (full screen, mini or Multiview):
+    // the screensaver would stop the stream.
+    val keepAwake = surface == TvSurface.Multiview ||
+        ((surface == TvSurface.Player || surface == TvSurface.Mini) &&
+            (isPlaying || playbackState == Player.STATE_BUFFERING || reconnecting))
+    DisposableEffect(view, keepAwake) {
+        view.keepScreenOn = keepAwake
+        onDispose { view.keepScreenOn = false }
+    }
+
+    LaunchedEffect(exitArmedAt) {
+        if (exitArmedAt == 0L) return@LaunchedEffect
+        delay(EXIT_WINDOW_MS)
+        exitHintVisible = false
+    }
+
+    // Home button, screensaver or the TV switching off: stop the stream so it doesn't die in the
+    // background, then pick it up again when the app is back on screen.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    viewModel.sleepPlayer()
+                    multiview.stopAll()
+                }
+                Lifecycle.Event.ON_START -> {
+                    viewModel.wakePlayer()
+                    multiview.resumeAll()
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(view) {
@@ -222,17 +490,50 @@ fun App(
             .fillMaxSize()
             .background(TvColors.Background)
             .windowInsetsPadding(WindowInsets.safeDrawing)
+            .onPreviewKeyEvent { event ->
+                // Mini player: Menu brings it back full screen; play/pause works from anywhere.
+                if (surface != TvSurface.Mini || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.Menu -> {
+                        surface = TvSurface.Player
+                        true
+                    }
+                    Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> {
+                        viewModel.pauseOrContinue(!isPlaying)
+                        true
+                    }
+                    else -> false
+                }
+            }
     ) {
         TvBackdrop(channel = currentChannel ?: state.heroChannel)
+        val browsing = onBrowse && details == null && !showSplash
+        // Nothing focused after the launch animation, a tab change or an overlay closing (the
+        // screen asked for focus while it couldn't take it): put focus in the screen, so the
+        // first key press does something sensible.
+        LaunchedEffect(browsing, destination, menuChannel == null && menuCategory == null) {
+            if (!browsing || menuChannel != null || menuCategory != null) return@LaunchedEffect
+            delay(FOCUS_RESCUE_MS)
+            if (!browseHasFocus) runCatching { contentFocus.requestFocus() }
+        }
         CompositionLocalProvider(
-            LocalTvFocusEnabled provides (surface == TvSurface.Browse && details == null && !showSplash)
+            LocalTvFocusEnabled provides browsing,
+            LocalChannelMenu provides openChannelMenu.takeIf { browsing },
+            LocalCategoryMenu provides openCategoryMenu.takeIf { browsing },
         ) {
-            Row(Modifier.fillMaxSize()) {
+            Row(
+                Modifier
+                    .fillMaxSize()
+                    .onFocusChanged { browseHasFocus = it.hasFocus }
+            ) {
                 TvNavigationRail(
                     selected = destination,
                     onSelect = { destination = it }
                 )
                 TvBrowsePane(
+                    modifier = Modifier
+                        .focusRequester(contentFocus)
+                        .focusGroup(),
                     destination = destination,
                     state = state,
                     onOpenLibrary = { destination = TvDestination.Library },
@@ -298,14 +599,43 @@ fun App(
                             },
                         )
                     },
+                    favouritesContent = {
+                        FavouritesScreen(
+                            state = state,
+                            groups = favouriteGroups,
+                            groupChannels = groupChannels,
+                            onPlay = openOrPlay,
+                            onMoveGroup = dial::moveGroup,
+                            onDeleteGroup = dial::deleteGroup,
+                        )
+                    },
+                    trending = trending,
+                    onOpenTrending = { entry -> openTmdbTitle(entry.title, entry.channel) },
+                    myLibraryContent = {
+                        MyLibraryScreen(
+                            state = state,
+                            continueWatching = continueWatching,
+                            onPlay = openOrPlay,
+                        )
+                    },
                     claudeContent = {
                         ClaudeScreen(onPlay = openOrPlay)
+                    },
+                    playbackSettingsContent = {
+                        PlaybackSettingsScreen(
+                            preferences = preferences,
+                            onUpdate = dial::updatePreferences,
+                        )
+                    },
+                    servicesSettingsContent = {
+                        ServicesSettingsScreen()
                     },
                     dialSettingsContent = {
                         DialSettingsScreen(
                             preferences = preferences,
                             onUpdate = dial::updatePreferences,
                             onClearHistory = dial::clearContinueWatching,
+                            pairingCode = remoteControlCode?.toString()?.padStart(6, '0'),
                         )
                     },
                 )
@@ -315,7 +645,7 @@ fun App(
         details?.let { current ->
             DetailsScreen(
                 state = current,
-                active = surface == TvSurface.Browse,
+                active = onBrowse && person == null,
                 isFavourite = state.favorites.any { it.id == current.channel.id },
                 onPlayFilm = { fromStart ->
                     if (dial.playsExternally(current.channel)) {
@@ -344,6 +674,85 @@ fun App(
                 onSelectSeason = dial::selectSeason,
                 onToggleFavourite = { viewModel.toggleFavorite(current.channel) },
                 onBack = dial::closeDetails,
+                extras = detailsExtras,
+                onOpenPerson = { member -> metadata.openPerson(member.id) },
+            )
+        }
+
+        person?.let { current ->
+            PersonScreen(
+                state = current,
+                onOpenTitle = { title -> openTmdbTitle(title, null) },
+                onBack = metadata::closePerson,
+            )
+        }
+
+        menuChannel?.let { channel ->
+            val kind = kindOf(channel)
+            val playlist = state.playlists.firstOrNull { it.url == channel.playlistUrl }
+            val external = dial.preferences.value.player != DialPlayer.BuiltIn
+            ChannelMenu(
+                channel = channel,
+                kind = kind,
+                favourite = state.favorites.any { it.id == channel.id },
+                groups = favouriteGroups,
+                actions = ChannelMenuActions(
+                    play = {
+                        when (kind) {
+                            MenuItemKind.Film -> if (dial.playsExternally(channel)) {
+                                dial.playFilm(channel, fromStart = false, external = true)
+                            } else {
+                                dial.playFilm(channel, fromStart = false)
+                                surface = TvSurface.Player
+                            }
+                            else -> openOrPlay(channel)
+                        }
+                    },
+                    playFromStart = if (kind == MenuItemKind.Film) {
+                        {
+                            dial.playFilm(channel, fromStart = true)
+                            surface = TvSurface.Player
+                        }
+                    } else null,
+                    details = if (kind != MenuItemKind.Live) {
+                        { dial.openDetails(channel, playlist) }
+                    } else null,
+                    toggleFavourite = { viewModel.toggleFavorite(channel) },
+                    playExternally = when {
+                        !channel.url.startsWith("http", ignoreCase = true) || external -> null
+                        kind == MenuItemKind.Live -> { { dial.playLiveExternally(channel) } }
+                        kind == MenuItemKind.Film -> {
+                            { dial.playFilm(channel, fromStart = false, external = true) }
+                        }
+                        else -> null
+                    },
+                    hide = if (kind == MenuItemKind.Live) {
+                        { viewModel.hideChannel(channel) }
+                    } else null,
+                    askClaude = { askClaudeAbout(channel) },
+                    addToMultiview = if (kind == MenuItemKind.Live && multiview.supports(channel)) {
+                        { openMultiview(channel) }
+                    } else null,
+                    toggleGroup = { groupId -> dial.toggleInGroup(groupId, channel.id) },
+                    createGroup = { name -> dial.createGroup(name, channel.id) },
+                ),
+                onDismiss = { menuChannel = null },
+            )
+        }
+
+        menuCategory?.let { name ->
+            val index = state.categories.indexOfFirst { it.name == name }
+            CategoryMenu(
+                name = name,
+                index = index,
+                count = state.categories.size,
+                hiddenCount = state.hiddenCategoryCount,
+                onMoveToFront = { viewModel.moveCategoryToFront(name) },
+                onMove = { delta -> viewModel.moveCategory(name, delta) },
+                onHide = { viewModel.hideCategory(name) },
+                onShowAll = viewModel::showAllCategories,
+                onReset = viewModel::resetCategories,
+                onDismiss = { menuCategory = null },
             )
         }
 
@@ -361,13 +770,58 @@ fun App(
                 isFavourite = playingId != null && state.favorites.any { it.id == playingId },
                 isPlaying = isPlaying,
                 playbackState = playbackState,
+                reconnecting = reconnecting,
+                failed = playbackFailed,
                 preferences = preferences,
+                subtitleTarget = nowPlaying?.subtitleTarget,
+                onUpdatePreferences = dial::updatePreferences,
                 onPlayPause = { viewModel.pauseOrContinue(!isPlaying) },
                 onNextChannel = { zap(1) },
                 onPreviousChannel = { zap(-1) },
                 onToggleFavourite = { currentChannel?.let(viewModel::toggleFavorite) },
-                onBack = closePlayer,
-                onClose = closePlayer
+                onBack = if (preferences.backToMini) minimizePlayer else closePlayer,
+                onClose = closePlayer,
+                onMinimize = minimizePlayer,
+                onMultiview = { currentChannel?.let(openMultiview) },
+            )
+        }
+
+        if (surface == TvSurface.Mini) {
+            player?.let { current ->
+                MiniPlayer(
+                    player = current,
+                    channel = currentChannel,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 32.dp, bottom = 24.dp),
+                )
+            }
+        }
+
+        if (surface == TvSurface.Multiview) {
+            val liveChannels = remember(state.favorites, state.channels, state.playlists) {
+                (state.favorites + state.channels)
+                    .distinctBy { it.id }
+                    .filter { kindOf(it) == MenuItemKind.Live }
+            }
+            MultiviewScreen(
+                candidates = liveChannels,
+                onOpenFull = { channel ->
+                    viewModel.play(channel)
+                    surface = TvSurface.Player
+                },
+                onClose = { surface = TvSurface.Browse },
+                viewModel = multiview,
+            )
+        }
+
+        upNext?.let { (series, episode) ->
+            UpNextCard(
+                episode = episode,
+                onPlay = { dial.playEpisode(series, episode, fromStart = true) },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 48.dp, bottom = 48.dp),
             )
         }
 
@@ -375,28 +829,25 @@ fun App(
             BrandSplash(onFinished = { splashDone = true })
         }
 
-        remoteControlCode?.let { code ->
-            val displayCode = code.toString().padStart(6, '0')
-            val spokenCode = displayCode.toCharArray().joinToString(separator = " ")
-            val pairingCodeDescription =
-                stringResource(string.ui_remote_control_pairing_code, spokenCode)
-            // Phone-remote pairing code, kept small at the foot of the menu rail so it never
-            // covers the tab headers (Markets chips, Guide dates) in the top-right corner.
+        AnimatedVisibility(
+            visible = exitHintVisible && onBrowse,
+            enter = fadeIn() + slideInVertically { it / 2 },
+            exit = fadeOut() + slideOutVertically { it / 2 },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 32.dp)
+        ) {
             Text(
-                text = displayCode,
-                color = TvColors.TextSecondary,
+                text = stringResource(R.string.dial_exit_hint),
+                color = TvColors.OnFocus,
                 fontFamily = TvFonts.Body,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .width(112.dp)
-                    .padding(bottom = 2.dp)
-                    .clearAndSetSemantics {
-                        contentDescription = pairingCodeDescription
-                        liveRegion = LiveRegionMode.Polite
-                    }
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(TvColors.Focus)
+                    .padding(horizontal = 24.dp, vertical = 10.dp)
+                    .semantics { liveRegion = LiveRegionMode.Polite }
             )
         }
     }

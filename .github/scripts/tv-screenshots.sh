@@ -35,7 +35,8 @@ check() {
     fi
     return 0
 }
-# Restart the app on one tab: home, library, guide, favorites, markets, games, account, settings.
+# Restart the app on one tab: home, library (Browse), guide, favorites, mylibrary, markets, games,
+# claude, account, settings.
 # The launch animation takes about 3.5 seconds, so the wait includes it.
 open_tab() {
     adb shell am start -S -W -n "$PKG/$ACTIVITY" --es destination "$1" >/dev/null
@@ -128,6 +129,9 @@ if check "launch"; then
 
     open_tab settings 8;  shot 12-settings
     press $RIGHT; for _ in 1 2 3 4 5 6 7 8; do press $DOWN; done; sleep 1; shot 13-settings-more
+    # The settings tabs: Playback and Services.
+    open_tab settings 8; press $RIGHT $RIGHT $OK; sleep 2; shot 15-settings-playback
+    press $RIGHT $OK; sleep 2; shot 16-settings-services
     check "settings"
 
     open_tab guide 8;     shot 14-guide
@@ -136,6 +140,10 @@ if check "launch"; then
     # Signed in to the test server: home, library, the timeline guide and the account list.
     if sign_in m3u m3u 17 && check "sign-in"; then
         open_tab home 10;     shot 19-home
+        # Hold OK on the first channel of the row under the hero: the item menu.
+        press $DOWN; sleep 1
+        adb shell input keyevent --longpress $OK; sleep 2; shot 25-hold-menu
+        press $BACK; sleep 1
         open_tab library 10;  shot 20-library
         open_tab guide 12;    shot 21-guide
         press $RIGHT; sleep 3; shot 22-guide-focus
@@ -203,6 +211,8 @@ if check "launch"; then
         open_tab guide 14;   shot 42-m3u-guide
         open_tab account 8;  shot 43-m3u-accounts
         open_tab claude 8;   shot 44-claude-setup
+        open_tab mylibrary 8; shot 45-my-library
+        open_tab markets 12; press $RIGHT $RIGHT $OK; sleep 10; shot 46-markets-robinhood
         check "m3u and claude"
     fi
 fi

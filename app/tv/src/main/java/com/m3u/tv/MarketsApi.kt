@@ -262,6 +262,9 @@ internal fun chainLabel(chainId: String): String = when (chainId) {
     "polygon" -> "Polygon"
     "sui" -> "Sui"
     "tron" -> "Tron"
+    "robinhood" -> "Robinhood"
+    "hyperliquid" -> "Hyperliquid"
+    "coin" -> "Coin"
     else -> chainId.replaceFirstChar { it.titlecase(Locale.ROOT) }
 }
 

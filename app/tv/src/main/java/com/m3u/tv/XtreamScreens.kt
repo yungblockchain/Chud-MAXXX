@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.runtime.Composable
@@ -40,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -90,6 +92,8 @@ fun XtreamSignInScreen(
     viewModel: XtreamAccountViewModel = hiltViewModel(),
 ) {
     val form by viewModel.form.collectAsStateWithLifecycle()
+    val services: ServicesSettingsViewModel = hiltViewModel()
+    val phonePage by services.phonePage.collectAsStateWithLifecycle()
     val serverFocus = remember { FocusRequester() }
     // The form is taller than the screen with the Xtream/M3U switch on top; whenever there's
     // news (checking, progress, done, a problem), scroll down so the message under the button
@@ -231,6 +235,8 @@ fun XtreamSignInScreen(
                     runCatching { signInFocus.requestFocus() }
                     viewModel.submit()
                 },
+                // Straight down to Sign in, not the phone button beside it.
+                downFocus = signInFocus,
             )
             Row(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -246,6 +252,13 @@ fun XtreamSignInScreen(
                     focusableWhenDisabled = true,
                     focusRequester = signInFocus,
                 )
+                // Typing a long server address and password with a remote is slow.
+                TvActionButton(
+                    text = stringResource(R.string.dial_signin_use_phone),
+                    icon = Icons.Rounded.PhoneAndroid,
+                    selected = phonePage != null,
+                    onClick = services::togglePhonePage,
+                )
                 if (onCancel != null) {
                     TvActionButton(
                         text = stringResource(R.string.dial_action_cancel),
@@ -254,6 +267,7 @@ fun XtreamSignInScreen(
                     )
                 }
             }
+            phonePage?.let { PhonePageCard(it) }
             SignInMessage(form.phase, m3u)
         }
     }
@@ -344,6 +358,8 @@ internal fun DialTextField(
     secret: Boolean = false,
     focusRequester: FocusRequester? = null,
     onDone: () -> Unit = {},
+    /** Where Down goes from this field, when the nearest thing below isn't the right one. */
+    downFocus: FocusRequester? = null,
 ) {
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -372,6 +388,8 @@ internal fun DialTextField(
                 keyboardType = keyboardType,
                 imeAction = imeAction,
                 autoCorrectEnabled = false,
+                // Moving onto the field with the remote only highlights it; OK opens the keyboard.
+                showKeyboardOnFocus = false,
             ),
             keyboardActions = KeyboardActions(
                 onNext = { focusManager.moveFocus(FocusDirection.Down) },
@@ -389,6 +407,7 @@ internal fun DialTextField(
                 .fillMaxWidth()
                 .heightIn(min = 52.dp)
                 .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+                .then(downFocus?.let { target -> Modifier.focusProperties { down = target } } ?: Modifier)
                 .onFocusChanged { focused = it.isFocused }
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) {

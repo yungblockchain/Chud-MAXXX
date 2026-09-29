@@ -49,11 +49,14 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -74,6 +77,10 @@ data class TvUiState(
     val searching: Boolean = false,
     val favorites: List<Channel> = emptyList(),
     val recent: Channel? = null,
+    /** The last few channels, films and episodes played, newest first. */
+    val recentlyPlayed: List<Channel> = emptyList(),
+    /** How many of the selected playlist's categories are hidden. */
+    val hiddenCategoryCount: Int = 0,
     val loadingChannels: Boolean = false,
     val externalExtensionsEnabled: Boolean = false,
     val extensionPlugins: List<InstalledPlugin> = emptyList(),
@@ -111,6 +118,7 @@ class TvHomeViewModel @Inject constructor(
     private val extensionSettingsRepository: ExtensionSettingsRepository,
     private val subscriptionProviderRepository: SubscriptionProviderRepository,
     private val settings: Settings,
+    private val dialStore: DialSettingsStore,
     tvRepository: TvRepository,
     dPadReactionService: DPadReactionService
 ) : ViewModel() {
@@ -123,6 +131,14 @@ class TvHomeViewModel @Inject constructor(
     val currentChannel: StateFlow<Channel?> = playerManager.channel
     val isPlaying: StateFlow<Boolean> = playerManager.isPlaying
     val playbackState: StateFlow<Int> = playerManager.playbackState
+    val reconnecting: StateFlow<Boolean> = playerManager.reconnecting
+    /** Name of the error a stream stopped with (for error reports), or null. */
+    val playbackError: StateFlow<String?> = playerManager.playbackException
+        .map { it?.errorCodeName }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), null)
+    val playbackFailed: StateFlow<Boolean> = playerManager.playbackException
+        .map { it != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), false)
     val remoteControlCode: StateFlow<Int?> = tvRepository.broadcastCodeOnTv
     val remoteDirections = dPadReactionService.incoming
     private var loadChannelsJob: Job? = null
@@ -176,10 +192,15 @@ class TvHomeViewModel @Inject constructor(
         },
     )
 
+    // The selected playlist's categories as the provider lists them, before the saved layout.
+    private var rawCategories: List<ChannelCategoryCount> = emptyList()
+    private var rawCategoriesUrl: String? = null
+
     init {
         observePlaylists()
         observeFavorites()
         observeRecent()
+        observeCategoryLayouts()
         observeExternalExtensions()
         observeProviderAccounts()
         refreshSubscriptionProviders()
@@ -247,6 +268,14 @@ class TvHomeViewModel @Inject constructor(
         state.value.recent?.let(::play)
     }
 
+    /** Hides a channel from lists (Settings > Sources lists hidden ones to bring back). */
+    fun hideChannel(channel: Channel) {
+        viewModelScope.launch {
+            channelRepository.hide(channel.id, true)
+            _state.value.selectedPlaylist?.url?.let { loadChannels(it) }
+        }
+    }
+
     fun toggleFavorite(channel: Channel) {
         viewModelScope.launch {
             channelRepository.favouriteOrUnfavourite(channel.id)
@@ -254,7 +283,23 @@ class TvHomeViewModel @Inject constructor(
     }
 
     fun pauseOrContinue(continuePlayback: Boolean) {
-        playerManager.pauseOrContinue(continuePlayback)
+        // A stream that stopped (dropped, or the Fire TV slept) starts again rather than
+        // "continuing" nothing; live channels rejoin at the live edge.
+        if (continuePlayback && playerManager.playbackState.value == Player.STATE_IDLE) {
+            playerManager.wake()
+        } else {
+            playerManager.pauseOrContinue(continuePlayback)
+        }
+    }
+
+    /** The app left the screen: free the stream and decoder, keeping what was playing. */
+    fun sleepPlayer() {
+        playerManager.sleep()
+    }
+
+    /** The app is back on screen: pick the stream up again if it stopped. */
+    fun wakePlayer() {
+        playerManager.wake()
     }
 
     fun releasePlayer() {
@@ -827,7 +872,7 @@ class TvHomeViewModel @Inject constructor(
 
     private fun observeFavorites() {
         viewModelScope.launch {
-            channelRepository.observeAllFavorite().collect { favorites ->
+            channelRepository.observeAllFavorite().distinctUntilChanged().collect { favorites ->
                 _state.update { it.copy(favorites = favorites) }
             }
         }
@@ -835,10 +880,69 @@ class TvHomeViewModel @Inject constructor(
 
     private fun observeRecent() {
         viewModelScope.launch {
-            channelRepository.observePlayedRecently().collect { recent ->
+            // Room re-emits on every write to the channel table (thousands during an import);
+            // only a change to what was last played needs the list re-read.
+            channelRepository.observePlayedRecently().distinctUntilChanged().collect { recent ->
                 _state.update { it.copy(recent = recent) }
+                refreshRecentlyPlayed()
             }
         }
+    }
+
+    /** Re-reads the "last watched" list (Home), e.g. after the player closes. */
+    fun refreshRecentlyPlayed() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val recent = runCatching { channelRepository.getPlayedRecently(RECENTLY_PLAYED_LIMIT) }
+                .getOrDefault(emptyList())
+            _state.update { it.copy(recentlyPlayed = recent) }
+        }
+    }
+
+    private fun observeCategoryLayouts() {
+        viewModelScope.launch {
+            dialStore.categoryLayouts.collect { layouts ->
+                val url = rawCategoriesUrl ?: return@collect
+                val layout = layouts[url] ?: CategoryLayout()
+                _state.update { state ->
+                    if (state.selectedPlaylist?.url != url) return@update state
+                    state.copy(
+                        categories = layout.arrange(rawCategories) { it.name },
+                        hiddenCategoryCount = rawCategories.count { it.name in layout.hidden },
+                    )
+                }
+            }
+        }
+    }
+
+    fun moveCategory(name: String, delta: Int) {
+        val url = _state.value.selectedPlaylist?.url ?: return
+        dialStore.moveCategory(url, _state.value.categories.map { it.name }, name, delta)
+    }
+
+    fun moveCategoryToFront(name: String) {
+        val url = _state.value.selectedPlaylist?.url ?: return
+        dialStore.moveCategoryToFront(url, _state.value.categories.map { it.name }, name)
+    }
+
+    fun hideCategory(name: String) {
+        val state = _state.value
+        val url = state.selectedPlaylist?.url ?: return
+        // Keep at least one category showing.
+        if (state.categories.size <= 1) return
+        dialStore.hideCategory(url, name)
+        if (state.selectedCategory == name) {
+            state.categories.firstOrNull { it.name != name }?.let { selectCategory(it.name) }
+        }
+    }
+
+    fun showAllCategories() {
+        val url = _state.value.selectedPlaylist?.url ?: return
+        dialStore.showAllCategories(url)
+    }
+
+    fun resetCategories() {
+        val url = _state.value.selectedPlaylist?.url ?: return
+        dialStore.resetCategories(url)
     }
 
     /**
@@ -850,7 +954,12 @@ class TvHomeViewModel @Inject constructor(
         loadChannelsJob?.cancel()
         loadChannelsJob = viewModelScope.launch(Dispatchers.IO) {
             _state.update { it.copy(loadingChannels = true) }
-            val categories = channelRepository.getCategoryCounts(url)
+            val providerCategories = channelRepository.getCategoryCounts(url)
+            rawCategories = providerCategories
+            rawCategoriesUrl = url
+            val layout = dialStore.categoryLayouts.value[url] ?: CategoryLayout()
+            val categories = layout.arrange(providerCategories) { it.name }
+            val hiddenCount = providerCategories.count { it.name in layout.hidden }
             val total = categories.sumOf { it.count }
             val wanted = _state.value.selectedCategory.takeIf { keepCategory }
             val category = when {
@@ -866,6 +975,7 @@ class TvHomeViewModel @Inject constructor(
                 if (state.selectedPlaylist?.url == url) {
                     state.copy(
                         categories = categories,
+                        hiddenCategoryCount = hiddenCount,
                         selectedCategory = category,
                         channels = channels,
                         loadingChannels = false
@@ -885,6 +995,7 @@ class TvHomeViewModel @Inject constructor(
         const val SEARCH_MIN_LENGTH = 2
         const val SEARCH_DEBOUNCE_MS = 350L
         const val SEARCH_LIMIT = 300
+        const val RECENTLY_PLAYED_LIMIT = 10
     }
 }
 

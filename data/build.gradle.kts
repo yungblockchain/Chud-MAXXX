@@ -152,6 +152,7 @@ dependencies {
 
     implementation(libs.nextlib.media3ext)
     implementation(libs.nextlib.mediainfo)
+    implementation(libs.libass.media)
 
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.hilt.work)

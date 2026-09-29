@@ -150,6 +150,8 @@ dependencies {
     implementation(libs.androidx.constraintlayout.compose)
     implementation(libs.io.coil.kt)
     implementation(libs.io.coil.kt.compose)
+    implementation(libs.io.coil.kt.gif)
+    implementation(libs.zxing.core)
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.ui.compose)
     implementation(libs.androidx.media3.exoplayer)

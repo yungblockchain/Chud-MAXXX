@@ -40,6 +40,8 @@ data class VodDetails(
     val director: String?,
     val poster: String?,
     val backdrop: String?,
+    /** TMDB id when the provider sends one (most do), for cast, trending and subtitles. */
+    val tmdbId: String? = null,
 )
 
 @Immutable
@@ -53,6 +55,7 @@ data class SeriesDetails(
     val poster: String?,
     val backdrop: String?,
     val seasons: List<SeriesSeason>,
+    val tmdbId: String? = null,
 )
 
 @Immutable
@@ -135,6 +138,8 @@ internal object XtreamCatalog {
             director = info?.text("director"),
             poster = info?.text("movie_image") ?: info?.text("cover_big"),
             backdrop = info?.text("backdrop_path"),
+            tmdbId = (info?.text("tmdb_id") ?: movie?.text("tmdb_id") ?: info?.text("tmdb"))
+                ?.takeIf { id -> id.all(Char::isDigit) && id != "0" },
         )
     }
 
@@ -154,6 +159,8 @@ internal object XtreamCatalog {
             poster = info?.text("cover"),
             backdrop = info?.text("backdrop_path"),
             seasons = seasons,
+            tmdbId = (info?.text("tmdb") ?: info?.text("tmdb_id"))
+                ?.takeIf { id -> id.all(Char::isDigit) && id != "0" },
         )
     }
 

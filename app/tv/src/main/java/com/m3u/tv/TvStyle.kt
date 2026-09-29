@@ -6,6 +6,7 @@ import androidx.compose.material.icons.automirrored.rounded.TrendingUp
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material.icons.rounded.LiveTv
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -66,6 +67,8 @@ enum class TvDestination(
     Library(Icons.AutoMirrored.Rounded.PlaylistPlay),
     Guide(Icons.Rounded.LiveTv),
     Favorites(Icons.Rounded.Favorite),
+    /** Saved films and series, and what's half-watched. */
+    MyLibrary(Icons.Rounded.VideoLibrary),
     Markets(Icons.AutoMirrored.Rounded.TrendingUp),
     Games(Icons.Rounded.SportsEsports),
     Claude(Icons.Rounded.AutoAwesome),
@@ -75,5 +78,9 @@ enum class TvDestination(
 
 enum class TvSurface {
     Browse,
-    Player
+    Player,
+    /** Video in a corner while browsing. */
+    Mini,
+    /** Up to four live channels at once. */
+    Multiview,
 }

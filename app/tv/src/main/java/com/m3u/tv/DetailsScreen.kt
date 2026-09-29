@@ -1,5 +1,14 @@
 package com.m3u.tv
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
+import kotlinx.coroutines.delay
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
@@ -60,6 +69,8 @@ fun DetailsScreen(
     onSelectSeason: (String) -> Unit,
     onToggleFavourite: () -> Unit,
     onBack: () -> Unit,
+    extras: DetailsExtrasState? = null,
+    onOpenPerson: (CastMember) -> Unit = {},
 ) {
     BackHandler(enabled = active, onBack = onBack)
     val primaryFocus = remember { FocusRequester() }
@@ -138,7 +149,18 @@ fun DetailsScreen(
                             duration = film?.duration,
                             genre = film?.genre ?: series?.genre,
                         )
-                        val plot = film?.plot ?: series?.plot
+                        val tmdb = extras?.extras?.takeIf { extras.channelId == state.channel.id }
+                        val plot = film?.plot ?: series?.plot ?: tmdb?.overview
+                        tmdb?.tagline?.let { tagline ->
+                            Text(
+                                text = tagline,
+                                color = TvColors.Focus,
+                                fontFamily = TvFonts.Body,
+                                fontSize = 16.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         if (plot != null) {
                             Text(
                                 text = plot,
@@ -152,7 +174,10 @@ fun DetailsScreen(
                             )
                         }
                         film?.director?.let { Credit(stringResource(R.string.dial_details_director, it)) }
-                        (film?.cast ?: series?.cast)?.let { Credit(stringResource(R.string.dial_details_cast, it)) }
+                        // The provider's cast line, unless the photo row below replaces it.
+                        if (tmdb?.cast.isNullOrEmpty()) {
+                            (film?.cast ?: series?.cast)?.let { Credit(stringResource(R.string.dial_details_cast, it)) }
+                        }
 
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -191,6 +216,19 @@ fun DetailsScreen(
                 }
             }
 
+            val currentExtras = extras?.takeIf { it.channelId == state.channel.id }
+            val cast = currentExtras?.extras?.cast.orEmpty()
+            if (cast.isNotEmpty()) {
+                item(key = "cast") {
+                    CastRow(cast = cast, onOpenPerson = onOpenPerson)
+                }
+            }
+            currentExtras?.extras?.imdbId?.let { imdbId ->
+                item(key = "imdb") {
+                    ImdbLink(url = "https://www.imdb.com/title/$imdbId/")
+                }
+            }
+
             if (state.kind == DetailsKind.Series && !state.loading) {
                 val seasons = series?.seasons.orEmpty()
                 if (seasons.isEmpty()) {
@@ -220,6 +258,26 @@ fun DetailsScreen(
                             onClick = { onPlayEpisode(episode) },
                         )
                     }
+                }
+            }
+
+            val comments = currentExtras?.comments.orEmpty()
+            if (comments.isNotEmpty()) {
+                item(key = "comments-title") {
+                    Text(
+                        text = stringResource(R.string.dial_details_comments),
+                        color = TvColors.TextPrimary,
+                        fontFamily = TvFonts.Body,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 20.sp,
+                    )
+                }
+                items(comments.size, key = { "comment-$it" }) { index ->
+                    CommentCard(comments[index])
+                }
+            } else if (currentExtras != null && currentExtras.hasTmdbKey && !currentExtras.hasTraktKey) {
+                item(key = "comments-hint") {
+                    Credit(stringResource(R.string.dial_details_comments_hint))
                 }
             }
         }
@@ -400,3 +458,155 @@ internal fun formatClock(ms: Long): String {
         "%d:%02d".format(minutes, seconds)
     }
 }
+
+/** The cast with photos, drifting slowly sideways until the remote reaches it. */
+@Composable
+private fun CastRow(cast: List<CastMember>, onOpenPerson: (CastMember) -> Unit) {
+    val listState = rememberLazyListState()
+    var focusedInside by remember { mutableStateOf(false) }
+    LaunchedEffect(cast, focusedInside) {
+        if (focusedInside) return@LaunchedEffect
+        delay(CAST_DRIFT_START_MS)
+        while (true) {
+            val scrolled = listState.scrollBy(CAST_DRIFT_PX)
+            if (scrolled == 0f) {
+                delay(CAST_DRIFT_PAUSE_MS)
+                listState.animateScrollToItem(0)
+                delay(CAST_DRIFT_START_MS)
+            }
+            delay(CAST_DRIFT_FRAME_MS)
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = stringResource(R.string.dial_details_cast_title),
+            color = TvColors.TextPrimary,
+            fontFamily = TvFonts.Body,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 20.sp,
+        )
+        LazyRow(
+            state = listState,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(vertical = 8.dp),
+            modifier = Modifier
+                .focusGroup()
+                .onFocusChanged { focusedInside = it.hasFocus }
+        ) {
+            items(cast, key = { it.id }) { member ->
+                FocusFrame(
+                    onClick = { onOpenPerson(member) },
+                    shape = RoundedCornerShape(12.dp),
+                    focusedScale = 1.06f,
+                    semanticsLabel = listOfNotNull(member.name, member.character).joinToString(", "),
+                    modifier = Modifier.width(132.dp),
+                ) { focused ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(10.dp),
+                    ) {
+                        AsyncImage(
+                            model = member.photo,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(96.dp)
+                                .clip(CircleShape)
+                                .background(TvColors.SurfaceRaised),
+                        )
+                        Text(
+                            text = member.name,
+                            color = if (focused) TvColors.OnFocus else TvColors.TextPrimary,
+                            fontFamily = TvFonts.Body,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        member.character?.let {
+                            Text(
+                                text = it,
+                                color = if (focused) TvColors.OnFocus.copy(alpha = 0.75f) else TvColors.TextSecondary,
+                                fontFamily = TvFonts.Body,
+                                fontSize = 12.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ImdbLink(url: String) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        QrCode(text = url, contentDescription = stringResource(R.string.dial_details_imdb_qr), size = 88.dp)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = stringResource(R.string.dial_details_imdb),
+                color = TvColors.TextPrimary,
+                fontFamily = TvFonts.Body,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+            )
+            Text(
+                text = url.removePrefix("https://www."),
+                color = TvColors.TextSecondary,
+                fontFamily = TvFonts.Body,
+                fontSize = 14.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CommentCard(comment: TraktComment) {
+    var revealed by remember { mutableStateOf(!comment.spoiler) }
+    FocusFrame(
+        onClick = { revealed = true },
+        shape = RoundedCornerShape(12.dp),
+        focusedScale = 1.01f,
+        semanticsLabel = comment.user,
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 1000.dp),
+    ) { focused ->
+        Column(
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+        ) {
+            Text(
+                text = listOfNotNull(
+                    comment.user,
+                    comment.rating?.let { stringResource(R.string.dial_details_comment_rating, it) },
+                    stringResource(R.string.dial_details_comment_likes, comment.likes),
+                ).joinToString(" · "),
+                color = if (focused) TvColors.OnFocus else TvColors.Focus,
+                fontFamily = TvFonts.Body,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+            )
+            Text(
+                text = if (revealed) comment.text else stringResource(R.string.dial_details_spoiler),
+                color = if (focused) TvColors.OnFocus else TvColors.TextSecondary,
+                fontFamily = TvFonts.Body,
+                fontSize = 15.sp,
+                lineHeight = 22.sp,
+                maxLines = if (focused) 12 else 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+private const val CAST_DRIFT_START_MS = 2_500L
+private const val CAST_DRIFT_PAUSE_MS = 2_000L
+private const val CAST_DRIFT_FRAME_MS = 16L
+private const val CAST_DRIFT_PX = 0.6f

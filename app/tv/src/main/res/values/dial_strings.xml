@@ -276,4 +276,231 @@
     <string name="dial_claude_error_offline">Couldn\'t reach Anthropic. Check the Fire TV\'s internet connection.</string>
     <string name="dial_claude_error_other">Something went wrong talking to Claude (%1$s). Try again.</string>
     <string name="dial_claude_error_no_response">no response</string>
+
+    <!-- Streams that drop, and closing the app -->
+    <string name="dial_player_reconnecting">Reconnecting…</string>
+    <string name="dial_player_stopped">Stream stopped. Press OK to try again.</string>
+    <string name="dial_exit_hint">Press Back again to close CHUD STREAMS</string>
+    <string name="dial_setting_back_twice_to_exit">Press Back twice to close the app</string>
+    <string name="dial_settings_section_phone_remote">Phone remote</string>
+    <string name="dial_setting_pairing_code">Pairing code</string>
+
+    <!-- Settings tabs -->
+    <string name="dial_settings_tab_playback">Playback</string>
+    <string name="dial_settings_tab_services">Services</string>
+    <string name="dial_action_save">Save</string>
+
+    <!-- Settings > Playback -->
+    <string name="dial_playback_section_picture">Picture</string>
+    <string name="dial_playback_tunneling">Tunneled playback</string>
+    <string name="dial_playback_dolby_vision">Dolby Vision</string>
+    <string name="dial_value_dv_native">Dolby Vision</string>
+    <string name="dial_value_dv_as_hdr10">Play as HDR10</string>
+    <string name="dial_playback_hdr">HDR10, HDR10+ and HLG</string>
+    <string name="dial_value_hdr_passthrough">Sent to the TV as-is</string>
+    <string name="dial_playback_decoder">Video decoder</string>
+    <string name="dial_value_decoder_hardware">Hardware</string>
+    <string name="dial_value_decoder_software">Software (FFmpeg) first</string>
+    <string name="dial_playback_menu_refresh">Menu refresh rate</string>
+    <string name="dial_value_refresh_fastest">Fastest (%1$d Hz)</string>
+    <string name="dial_value_refresh_tv">TV default</string>
+    <string name="dial_playback_section_sound">Sound</string>
+    <string name="dial_playback_surround">Dolby and DTS audio</string>
+    <string name="dial_value_surround_passthrough">Pass through to TV or soundbar</string>
+    <string name="dial_value_surround_decode">Decode to stereo</string>
+    <string name="dial_playback_audio_delay">Audio delay</string>
+    <string name="dial_value_delay_later">%1$d ms later</string>
+    <string name="dial_value_delay_earlier">%1$d ms earlier</string>
+    <string name="dial_value_delay_none">In sync</string>
+    <string name="dial_playback_section_subtitles">Subtitles</string>
+    <string name="dial_playback_subtitles">Turn on subtitles</string>
+    <string name="dial_value_subtitles_off">Never</string>
+    <string name="dial_value_subtitles_forced">Forced only</string>
+    <string name="dial_value_subtitles_always">In my language</string>
+    <string name="dial_playback_subtitle_size">Subtitle size</string>
+    <string name="dial_value_percent">%1$d%%</string>
+    <string name="dial_playback_styled_subtitles">Styled ASS/SSA subtitles (libass)</string>
+    <string name="dial_playback_subtitle_delay">Subtitle delay</string>
+    <string name="dial_playback_opensubtitles_key">OpenSubtitles API key</string>
+    <string name="dial_playback_opensubtitles_hint">API key from opensubtitles.com (Profile, API consumers)</string>
+    <string name="dial_playback_section_streaming">Streaming</string>
+    <string name="dial_playback_buffer">Buffer</string>
+    <string name="dial_value_buffer_fast">Fast start</string>
+    <string name="dial_value_buffer_balanced">Balanced</string>
+    <string name="dial_value_buffer_large">Large (steadier on weak Wi-Fi)</string>
+    <string name="dial_playback_autoplay_next">Play the next episode automatically</string>
+    <string name="dial_playback_footnote">Delay rows: press Left or Right to adjust, OK to reset. Picture, sound and buffer changes apply from the next stream. For HDR to switch on and off with each show, set Fire TV Settings, Display and Sounds, Display, Dynamic Range Settings to Adaptive.</string>
+    <string name="dial_value_key_added">Added</string>
+    <string name="dial_value_key_missing">Not set</string>
+
+    <!-- In-player options -->
+    <string name="dial_options_title">Options</string>
+    <string name="dial_options_audio">Audio</string>
+    <string name="dial_options_subtitles">Subtitles</string>
+    <string name="dial_options_subtitles_off">Off</string>
+    <string name="dial_options_none">None</string>
+    <string name="dial_options_track">Track %1$d</string>
+    <string name="dial_options_forced">Forced</string>
+    <string name="dial_options_find_subtitles">Find subtitles online</string>
+    <string name="dial_options_needs_key">Add a key in Settings</string>
+    <string name="dial_options_quality">Quality</string>
+    <string name="dial_options_quality_auto">Automatic</string>
+    <string name="dial_options_picture_sound">Picture and sync</string>
+    <string name="dial_options_speed">Speed</string>
+    <string name="dial_options_adjust_hint">Left or Right to adjust, OK to reset</string>
+    <string name="dial_options_online_subtitles">OpenSubtitles</string>
+    <string name="dial_options_searching">Searching…</string>
+    <string name="dial_options_downloading">Downloading…</string>
+    <string name="dial_options_downloads">%1$d downloads</string>
+    <string name="dial_options_subtitle_added">%1$s subtitles added</string>
+    <string name="dial_options_no_results">No subtitles found for this title</string>
+    <string name="dial_options_error_no_key">Add your OpenSubtitles API key in Settings, Playback.</string>
+    <string name="dial_options_error_rejected">OpenSubtitles didn\'t accept the API key.</string>
+    <string name="dial_options_error_quota">Today\'s OpenSubtitles download limit is used up. Try again tomorrow.</string>
+    <string name="dial_options_error_offline">Couldn\'t reach OpenSubtitles.</string>
+    <string name="dial_options_error_other">OpenSubtitles had a problem. Try again later.</string>
+
+    <!-- Up next -->
+    <string name="dial_up_next">Up next</string>
+    <string name="dial_up_next_episode">S%1$s E%2$s</string>
+    <string name="dial_up_next_countdown">Starts in %1$d s</string>
+    <string name="dial_up_next_play">Play now</string>
+
+    <!-- Settings > Services -->
+    <string name="dial_services_intro">Your own keys for extra features. Type them here or send them from the phone page. They stay encrypted on this Fire TV and only go to their own service.</string>
+    <string name="dial_services_section_film">Film and TV info</string>
+    <string name="dial_services_tmdb">TMDB API key</string>
+    <string name="dial_services_tmdb_hint">API key (v3) or read access token from themoviedb.org</string>
+    <string name="dial_services_trakt">Trakt client ID</string>
+    <string name="dial_services_trakt_hint">Client ID of an app you create at trakt.tv/oauth/applications</string>
+    <string name="dial_services_section_markets">Markets and Telegram</string>
+    <string name="dial_services_cmc">CoinMarketCap API key</string>
+    <string name="dial_services_cmc_hint">API key from pro.coinmarketcap.com</string>
+    <string name="dial_services_telegram_bot">Telegram bot token</string>
+    <string name="dial_services_telegram_bot_hint">Token of your own bot, from @BotFather</string>
+    <string name="dial_services_telegram_chat">Telegram chat ID</string>
+    <string name="dial_services_telegram_chat_hint">Your chat ID with that bot (numbers)</string>
+    <string name="dial_services_trading_bot">Trading bot username</string>
+    <string name="dial_services_trading_bot_hint">The Telegram bot you trade with, e.g. @yourbot</string>
+    <string name="dial_services_section_reports">Crash and error reports</string>
+    <string name="dial_services_github_repo">GitHub repository</string>
+    <string name="dial_services_github_repo_hint">owner/name of your private repository</string>
+    <string name="dial_services_github_token">GitHub token</string>
+    <string name="dial_services_github_token_hint">Fine-grained token with Issues: read and write on that repository</string>
+
+    <!-- Navigation -->
+    <string name="dial_nav_browse">Browse</string>
+    <string name="dial_nav_my_library">My Library</string>
+
+    <!-- Home -->
+    <string name="dial_home_last_watched">Last watched</string>
+    <string name="dial_home_last_watched_hint">The last ten channels, films and episodes you played</string>
+
+    <!-- Favourites -->
+    <string name="dial_favourites_title">Favourites</string>
+    <string name="dial_favourites_subtitle">Hold OK on a channel to add it to a group of your own</string>
+    <string name="dial_favourites_all">All · %1$d</string>
+    <string name="dial_favourites_empty">No favourite channels yet. Hold OK on a channel and choose Add to favourites.</string>
+    <string name="dial_favourites_group_empty">This group is empty. Hold OK on a channel and choose Favourite groups.</string>
+
+    <!-- My Library -->
+    <string name="dial_my_library_subtitle">Films and series you saved, and what you\'re partway through</string>
+    <string name="dial_my_library_films">Saved films</string>
+    <string name="dial_my_library_series">Saved series</string>
+    <string name="dial_my_library_empty">Nothing saved yet. Hold OK on a film or series and choose Save to My Library.</string>
+
+    <!-- Hold-OK menu -->
+    <string name="dial_menu_play">Play</string>
+    <string name="dial_menu_open">Open</string>
+    <string name="dial_menu_play_from_start">Play from the start</string>
+    <string name="dial_menu_details">Details, cast and reviews</string>
+    <string name="dial_menu_favourite">Add to favourites</string>
+    <string name="dial_menu_unfavourite">Remove from favourites</string>
+    <string name="dial_menu_library_add">Save to My Library</string>
+    <string name="dial_menu_library_remove">Remove from My Library</string>
+    <string name="dial_menu_groups">Favourite groups</string>
+    <string name="dial_menu_new_group">New group…</string>
+    <string name="dial_menu_group_name">Group name</string>
+    <string name="dial_menu_group_name_hint">e.g. Sports, Kids, News</string>
+    <string name="dial_menu_create_group">Create group</string>
+    <string name="dial_menu_group_subtitle">Favourite group</string>
+    <string name="dial_menu_delete_group">Delete group</string>
+    <string name="dial_menu_play_externally">Play in another app</string>
+    <string name="dial_menu_ask_claude">Ask Claude about this</string>
+    <string name="dial_menu_ask_claude_prompt">Tell me about \"%1$s\" (from %2$s): what it is, why people like it, and similar things in my playlists.</string>
+    <string name="dial_menu_hide_channel">Hide channel</string>
+    <string name="dial_menu_category_subtitle">Category</string>
+    <string name="dial_menu_category_front">Move to the front</string>
+    <string name="dial_menu_category_earlier">Move earlier</string>
+    <string name="dial_menu_category_later">Move later</string>
+    <string name="dial_menu_category_hide">Hide this category</string>
+    <string name="dial_menu_category_show_all">Show hidden categories (%1$d)</string>
+    <string name="dial_menu_category_reset">Reset category order</string>
+
+    <!-- TMDB and Trakt -->
+    <string name="dial_trending_title">Trending this week</string>
+    <string name="dial_trending_subtitle">From TMDB. Marked ones are in your playlists.</string>
+    <string name="dial_trending_in_playlists">IN YOURS</string>
+    <string name="dial_trending_not_found">%1$s isn\'t in your playlists</string>
+    <string name="dial_details_cast_title">Cast</string>
+    <string name="dial_details_imdb">Open on IMDb</string>
+    <string name="dial_details_imdb_qr">QR code for the IMDb page</string>
+    <string name="dial_details_comments">Reviews on Trakt</string>
+    <string name="dial_details_comments_hint">Add a Trakt client ID in Settings, Services to see reviews and comments here.</string>
+    <string name="dial_details_comment_rating">%1$d/10</string>
+    <string name="dial_details_comment_likes">%1$d likes</string>
+    <string name="dial_details_spoiler">Contains spoilers. Press OK to read.</string>
+    <string name="dial_person_born">Born %1$s</string>
+    <string name="dial_person_known_for">Known for</string>
+
+    <!-- Markets: more sources, charts, Telegram -->
+    <string name="dial_markets_robinhood">Robinhood</string>
+    <string name="dial_markets_hyperliquid">Hyperliquid</string>
+    <string name="dial_markets_top_coins">Top coins</string>
+    <string name="dial_markets_open_interest">Open interest</string>
+    <string name="dial_markets_range_hour">1H</string>
+    <string name="dial_markets_range_day">1D</string>
+    <string name="dial_markets_range_week">1W</string>
+    <string name="dial_markets_range_month">1M</string>
+    <string name="dial_markets_chart_loading">Loading chart…</string>
+    <string name="dial_markets_chart_none">No chart for this one</string>
+    <string name="dial_markets_telegram_send">Send to Telegram</string>
+    <string name="dial_markets_telegram_setup">Add your Telegram bot token and chat ID in Settings, Services first.</string>
+    <string name="dial_markets_telegram_sent">Sent to your Telegram</string>
+    <string name="dial_markets_telegram_failed">Telegram didn\'t take it. Check the bot token and chat ID.</string>
+    <string name="dial_markets_scan">Scan to open in %1$s</string>
+    <string name="dial_markets_next_link">Other link</string>
+
+    <!-- Crash reports and the phone page -->
+    <string name="dial_services_reports_saved">Saved reports</string>
+    <string name="dial_services_reports_count">%1$d (%2$d not sent)</string>
+    <string name="dial_services_reports_send">Send reports to GitHub now</string>
+    <string name="dial_services_reports_sending">Sending…</string>
+    <string name="dial_services_reports_sent">%1$d sent</string>
+    <string name="dial_services_reports_setup">Add the repository and token first</string>
+    <string name="dial_services_reports_failed">GitHub refused. Check the token and repository.</string>
+    <string name="dial_services_reports_auto">Send reports when the app starts</string>
+    <string name="dial_services_reports_delete">Delete all reports</string>
+    <string name="dial_services_section_phone">Phone page</string>
+    <string name="dial_services_phone_page">Type on your phone instead</string>
+    <string name="dial_services_phone_qr">QR code for the phone page</string>
+    <string name="dial_services_phone_scan">Scan with a phone on the same Wi-Fi, or open:</string>
+    <string name="dial_services_phone_pin">PIN %1$s</string>
+    <string name="dial_signin_use_phone">Use your phone</string>
+    <string name="dial_phone_key_saved">Key saved from your phone</string>
+
+    <!-- Mini player and Multiview -->
+    <string name="dial_setting_back_in_player">Back in the player</string>
+    <string name="dial_value_mini_player">Mini player</string>
+    <string name="dial_value_close_player">Close</string>
+    <string name="dial_player_mini">Mini player</string>
+    <string name="dial_mini_hint">Menu: full screen · Back: close</string>
+    <string name="dial_multiview_title">Multiview</string>
+    <string name="dial_multiview_add">Add a channel</string>
+    <string name="dial_multiview_full">Watch full screen</string>
+    <string name="dial_multiview_change">Change channel</string>
+    <string name="dial_multiview_remove">Remove from Multiview</string>
+    <string name="dial_multiview_pick">Choose a channel</string>
+    <string name="dial_multiview_pick_empty">Add favourites or open a live playlist in Browse first.</string>
+    <string name="dial_menu_multiview">Add to Multiview</string>
 </resources>

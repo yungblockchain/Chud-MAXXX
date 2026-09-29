@@ -5,6 +5,11 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.PictureInPictureAlt
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -113,16 +118,25 @@ fun TvPlayerScreen(
     isFavourite: Boolean,
     isPlaying: Boolean,
     playbackState: Int,
+    reconnecting: Boolean,
+    failed: Boolean,
     preferences: DialPreferences,
+    subtitleTarget: SubtitleTarget?,
+    onUpdatePreferences: ((DialPreferences) -> DialPreferences) -> Unit,
     onPlayPause: () -> Unit,
     onNextChannel: () -> Unit,
     onPreviousChannel: () -> Unit,
     onToggleFavourite: () -> Unit,
     onBack: () -> Unit,
     onClose: () -> Unit,
+    onMinimize: (() -> Unit)? = null,
+    onMultiview: (() -> Unit)? = null,
 ) {
     val view = LocalView.current
     val playPauseFocusRequester = remember { FocusRequester() }
+    val optionsFocusRequester = remember { FocusRequester() }
+    var optionsOpen by remember { mutableStateOf(false) }
+    var restoreOptionsFocus by remember { mutableStateOf(false) }
     val currentOnClose by rememberUpdatedState(onClose)
 
     var controlsVisible by remember { mutableStateOf(true) }
@@ -176,8 +190,15 @@ fun TvPlayerScreen(
     }
 
     // Auto-hide, but never while paused: a paused picture with no controls looks frozen.
-    LaunchedEffect(controlsVisible, interaction, isPlaying) {
-        if (controlsVisible && isPlaying) {
+    LaunchedEffect(restoreOptionsFocus) {
+        if (!restoreOptionsFocus) return@LaunchedEffect
+        yield()
+        runCatching { optionsFocusRequester.requestFocus() }
+        restoreOptionsFocus = false
+    }
+
+    LaunchedEffect(controlsVisible, interaction, isPlaying, optionsOpen) {
+        if (controlsVisible && isPlaying && !optionsOpen) {
             delay(controlsTimeoutMs)
             controlsVisible = false
         }
@@ -213,9 +234,12 @@ fun TvPlayerScreen(
     // Auto frame rate (TiviMate's "AFR"): switch the TV to a refresh rate that is a whole multiple
     // of the video's frame rate, so 24/25/30 fps content plays without judder. The TV blanks for
     // a moment when it switches, which is why this is off by default.
+    val currentFastMenus by rememberUpdatedState(preferences.fastMenus)
     LaunchedEffect(activity, videoFrameRate, preferences.matchFrameRate) {
         val host = activity ?: return@LaunchedEffect
         val window = host.window ?: return@LaunchedEffect
+        // Without frame-rate matching, hand the mode back to the TV (and the Fire TV's own
+        // "match original frame rate" setting) rather than keeping the menus' mode.
         val modeId = if (preferences.matchFrameRate && videoFrameRate > 0f) {
             bestDisplayModeFor(host, videoFrameRate)
         } else 0
@@ -227,20 +251,11 @@ fun TvPlayerScreen(
     }
     DisposableEffect(activity) {
         onDispose {
-            val window = activity?.window ?: return@onDispose
-            val params = window.attributes
-            if (params.preferredDisplayModeId != 0) {
-                params.preferredDisplayModeId = 0
-                window.attributes = params
-            }
+            // Back to the menus' refresh rate.
+            activity?.let { DisplayModes.applyMenuMode(it, currentFastMenus) }
         }
     }
 
-    // Stop the Fire TV screensaver from kicking in during playback.
-    DisposableEffect(view, isPlaying) {
-        view.keepScreenOn = isPlaying
-        onDispose { view.keepScreenOn = false }
-    }
 
     LaunchedEffect(sleepEndsAt) {
         val end = sleepEndsAt ?: return@LaunchedEffect
@@ -285,7 +300,16 @@ fun TvPlayerScreen(
                     swallowedKey = null
                     return@onPreviewKeyEvent true
                 }
+                // The options panel moves with the arrows like any list.
+                if (optionsOpen) return@onPreviewKeyEvent false
                 when {
+                    key == Key.Menu -> {
+                        if (firstPress) {
+                            showControls()
+                            optionsOpen = true
+                        }
+                        true
+                    }
                     canZap && key in CHANNEL_UP_KEYS -> {
                         if (firstPress) onChannelUpKey()
                         true
@@ -363,11 +387,22 @@ fun TvPlayerScreen(
                     modifier = surfaceModifier
                 )
             }
+            SubtitleLayer(
+                player = player,
+                sizePercent = preferences.subtitleSizePercent,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         // With the controls open, the same state shows under the channel name instead.
-        if (playbackState == Player.STATE_BUFFERING && !controlsVisible) {
-            TuningPill(Modifier.align(Alignment.Center))
+        val stateNotice = when {
+            reconnecting -> stringResource(R.string.dial_player_reconnecting)
+            failed && playbackState == Player.STATE_IDLE -> stringResource(R.string.dial_player_stopped)
+            playbackState == Player.STATE_BUFFERING -> stringResource(R.string.dial_player_tuning)
+            else -> null
+        }
+        if (stateNotice != null && !controlsVisible) {
+            TuningPill(text = stateNotice, modifier = Modifier.align(Alignment.Center))
         }
 
         AnimatedVisibility(
@@ -411,6 +446,7 @@ fun TvPlayerScreen(
                     channel = channel,
                     channelNumber = channelNumber.takeIf { live },
                     playbackState = playbackState,
+                    notice = stateNotice,
                 )
                 if (!live && duration > 0L) {
                     ProgressLine(position = position, duration = duration)
@@ -476,6 +512,29 @@ fun TvPlayerScreen(
                             },
                         )
                     }
+                    onMinimize?.let { minimize ->
+                        TvIconActionButton(
+                            icon = Icons.Rounded.PictureInPictureAlt,
+                            contentDescription = stringResource(R.string.dial_player_mini),
+                            onClick = minimize,
+                        )
+                    }
+                    if (live && onMultiview != null) {
+                        TvIconActionButton(
+                            icon = Icons.Rounded.GridView,
+                            contentDescription = stringResource(R.string.dial_multiview_title),
+                            onClick = onMultiview,
+                        )
+                    }
+                    TvIconActionButton(
+                        icon = Icons.Rounded.Tune,
+                        contentDescription = stringResource(R.string.dial_options_title),
+                        onClick = {
+                            optionsOpen = true
+                            showControls()
+                        },
+                        focusRequester = optionsFocusRequester,
+                    )
                     TvActionButton(
                         text = stringResource(R.string.dial_player_sleep),
                         icon = Icons.Rounded.Bedtime,
@@ -513,6 +572,25 @@ fun TvPlayerScreen(
                 }
             }
         }
+
+        AnimatedVisibility(
+            visible = optionsOpen,
+            enter = slideInHorizontally { it } + fadeIn(),
+            exit = slideOutHorizontally { it } + fadeOut(),
+            modifier = Modifier.align(Alignment.CenterEnd),
+        ) {
+            PlayerOptionsPanel(
+                live = live,
+                subtitleTarget = subtitleTarget,
+                preferences = preferences,
+                onUpdatePreferences = onUpdatePreferences,
+                onClose = {
+                    optionsOpen = false
+                    restoreOptionsFocus = true
+                    showControls()
+                },
+            )
+        }
     }
 }
 
@@ -521,6 +599,7 @@ private fun NowPlaying(
     channel: Channel?,
     channelNumber: Int?,
     playbackState: Int,
+    notice: String?,
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -543,10 +622,10 @@ private fun NowPlaying(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            val subtitle = if (playbackState == Player.STATE_READY) {
-                channel?.category?.takeIf { it.isNotBlank() }
-            } else {
-                playerStateText(playbackState)
+            val subtitle = when {
+                notice != null -> notice
+                playbackState == Player.STATE_READY -> channel?.category?.takeIf { it.isNotBlank() }
+                else -> playerStateText(playbackState)
             }
             if (subtitle != null) {
                 Text(
@@ -618,9 +697,9 @@ private fun ChannelNumber(number: Int, fontSize: Int) {
 }
 
 @Composable
-private fun TuningPill(modifier: Modifier = Modifier) {
+private fun TuningPill(text: String, modifier: Modifier = Modifier) {
     Text(
-        text = stringResource(R.string.dial_player_tuning),
+        text = text,
         color = TvColors.OnFocus,
         fontFamily = TvFonts.Body,
         fontWeight = FontWeight.Bold,
@@ -676,10 +755,10 @@ private fun formatTime(ms: Long): String {
 
 @Composable
 private fun playerStateText(playbackState: Int): String = when (playbackState) {
-    Player.STATE_BUFFERING -> stringResource(R.string.dial_player_tuning)
     Player.STATE_READY -> stringResource(string.feat_channel_playback_state_ready)
     Player.STATE_ENDED -> stringResource(string.feat_channel_playback_state_ended)
-    else -> stringResource(string.feat_channel_playback_state_idle)
+    // Idle without an error only lasts a moment, while a stream (re)starts.
+    else -> stringResource(R.string.dial_player_tuning)
 }
 
 /** Frame rate of the video track being played, or 0 if the stream doesn't say. */
