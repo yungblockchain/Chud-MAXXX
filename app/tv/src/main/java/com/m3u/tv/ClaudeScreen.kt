@@ -334,14 +334,14 @@ private fun ClaudeBubble(entry: ClaudeEntry, onPlay: (Channel) -> Unit) {
     }
 }
 
-/** The three models, in a row that scrolls with focus so none is cut off on narrow layouts. */
+/** The three models stacked, so all of them are visible at once in the narrow setup column. */
 @Composable
 private fun ModelChips(selected: ClaudeModel, onSelect: (ClaudeModel) -> Unit) {
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    Column(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.focusGroup()
     ) {
-        items(ClaudeModel.entries, key = { it.name }) { model ->
+        ClaudeModel.entries.forEach { model ->
             TvActionButton(
                 text = modelLabel(model),
                 icon = Icons.Rounded.AutoAwesome,
