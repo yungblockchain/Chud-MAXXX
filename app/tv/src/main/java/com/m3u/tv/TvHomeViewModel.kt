@@ -53,6 +53,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -871,7 +872,7 @@ class TvHomeViewModel @Inject constructor(
 
     private fun observeFavorites() {
         viewModelScope.launch {
-            channelRepository.observeAllFavorite().collect { favorites ->
+            channelRepository.observeAllFavorite().distinctUntilChanged().collect { favorites ->
                 _state.update { it.copy(favorites = favorites) }
             }
         }
@@ -879,7 +880,9 @@ class TvHomeViewModel @Inject constructor(
 
     private fun observeRecent() {
         viewModelScope.launch {
-            channelRepository.observePlayedRecently().collect { recent ->
+            // Room re-emits on every write to the channel table (thousands during an import);
+            // only a change to what was last played needs the list re-read.
+            channelRepository.observePlayedRecently().distinctUntilChanged().collect { recent ->
                 _state.update { it.copy(recent = recent) }
                 refreshRecentlyPlayed()
             }
