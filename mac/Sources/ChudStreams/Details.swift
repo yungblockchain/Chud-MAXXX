@@ -106,6 +106,11 @@ struct DetailsPage: View {
                     reader.scrollTo(DetailsPage.castAnchor, anchor: .top)
                 }
             }
+            // Keeps the Back button readable over whatever scrolls under it.
+            LinearGradient(colors: [Neon.background.opacity(0.92), Neon.background.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: 96)
+                .frame(maxWidth: .infinity)
+                .allowsHitTesting(false)
             Button {
                 close()
             } label: {
@@ -647,6 +652,10 @@ struct PersonPage: View {
                 .padding(.horizontal, 36)
                 .padding(.bottom, 40)
             }
+            LinearGradient(colors: [Neon.background.opacity(0.92), Neon.background.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: 96)
+                .frame(maxWidth: .infinity)
+                .allowsHitTesting(false)
             Button {
                 withAnimation(Motion.page) { model.person = nil }
             } label: {

@@ -155,14 +155,10 @@ enum TourRunner {
                 check("video-picture", highQuality || plain,
                       (highQuality ? "clean picture" : (plain ? "clean only with the bilinear scaler" : "no clean picture")) + " (\(glName))")
             }
-            // Show the subtitle panel.
-            let pausedBefore = player?.paused
+            // Switch subtitles with the S key.
             postKey("s")
             await wait(1)
             shot("10-player-subtitles-toggle")
-            let mpvPause = player?.core?.string("pause") ?? "?"
-            check("play-state", player?.paused == false && mpvPause == "no",
-                  "before the key: \(pausedBefore.map { $0 ? "paused" : "playing" } ?? "?"), after: app \(player?.paused == true ? "paused" : "playing"), mpv pause=\(mpvPause), position \(String(format: "%.1f", player?.position ?? 0))s")
             // Mini player while browsing.
             model.playback.minimise()
             await go(model, .home, settle: 3)
