@@ -459,9 +459,10 @@ private fun FeaturedCarouselPane(
         focusedScale = 1f,
         focusedBorderWidth = 0.dp,
         focusedBorderColor = Color.Transparent,
+        // A set height, so the backdrop picture never decides how tall the hero is.
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = largeTextLayout.heroMinHeightDp.dp)
+            .height(maxOf(largeTextLayout.heroMinHeightDp, HERO_HEIGHT_DP).dp)
             .focusProperties { down = nextFocusRequester },
         onKey = { event ->
             if (event.type != KeyEventType.KeyDown || !secondaryAvailable) {
@@ -502,7 +503,7 @@ private fun FeaturedCarouselPane(
                 PosterArt(
                     model = channel.cover,
                     fitLogos = false,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.matchParentSize()
                 )
             }
             Box(
@@ -3089,3 +3090,6 @@ private fun SetupStep(text: String) {
 private const val TAB_IN_MS = 220
 private const val TAB_OUT_MS = 120
 private const val TAB_SLIDE_DIVISOR = 28
+
+/** Home hero height on a 1080p screen (about 60% of it). */
+private const val HERO_HEIGHT_DP = 320
