@@ -41,6 +41,8 @@ data class DialPreferences(
     val launchAnimation: Boolean = true,
     val matchFrameRate: Boolean = false,
     val player: DialPlayer = DialPlayer.BuiltIn,
+    /** On the main menu, Back twice in a row closes the app completely (frees its memory). */
+    val backTwiceToExit: Boolean = true,
 ) {
     companion object {
         val CONTROLS_TIMEOUT_OPTIONS = listOf(3, 5, 8, 12)
@@ -107,6 +109,7 @@ class DialSettingsStore @Inject constructor(
             .putBoolean(KEY_LAUNCH_ANIMATION, next.launchAnimation)
             .putBoolean(KEY_MATCH_FRAME_RATE, next.matchFrameRate)
             .putString(KEY_PLAYER, next.player.name)
+            .putBoolean(KEY_BACK_TWICE_TO_EXIT, next.backTwiceToExit)
             .apply()
     }
 
@@ -191,6 +194,7 @@ class DialSettingsStore @Inject constructor(
             player = prefs.getString(KEY_PLAYER, null)
                 ?.let { name -> DialPlayer.entries.firstOrNull { it.name == name } }
                 ?: defaults.player,
+            backTwiceToExit = prefs.getBoolean(KEY_BACK_TWICE_TO_EXIT, defaults.backTwiceToExit),
         )
     }
 
@@ -214,6 +218,7 @@ class DialSettingsStore @Inject constructor(
         const val KEY_LAUNCH_ANIMATION = "launch_animation"
         const val KEY_MATCH_FRAME_RATE = "match_frame_rate"
         const val KEY_PLAYER = "player"
+        const val KEY_BACK_TWICE_TO_EXIT = "back_twice_to_exit"
         const val KEY_LAST_CHANNEL = "last_channel"
         const val KEY_HISTORY = "on_demand_history"
         const val KEY_WATCHLIST = "markets_watchlist"

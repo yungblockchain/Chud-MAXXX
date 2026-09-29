@@ -74,6 +74,7 @@ fun DialSettingsScreen(
     preferences: DialPreferences,
     onUpdate: ((DialPreferences) -> DialPreferences) -> Unit,
     onClearHistory: () -> Unit,
+    pairingCode: String? = null,
 ) {
     var cleared by remember { mutableStateOf(false) }
     val on = stringResource(R.string.dial_value_on)
@@ -105,6 +106,13 @@ fun DialSettingsScreen(
                 label = stringResource(R.string.dial_setting_launch_animation),
                 value = onOff(preferences.launchAnimation),
                 onClick = { onUpdate { it.copy(launchAnimation = !it.launchAnimation) } },
+            )
+        }
+        item {
+            SettingRow(
+                label = stringResource(R.string.dial_setting_back_twice_to_exit),
+                value = onOff(preferences.backTwiceToExit),
+                onClick = { onUpdate { it.copy(backTwiceToExit = !it.backTwiceToExit) } },
             )
         }
 
@@ -234,6 +242,18 @@ fun DialSettingsScreen(
                     cleared = true
                 },
             )
+        }
+
+        // The phone-remote pairing code lives here rather than on every screen.
+        if (pairingCode != null) {
+            item { SettingsSection(stringResource(R.string.dial_settings_section_phone_remote)) }
+            item {
+                SettingRow(
+                    label = stringResource(R.string.dial_setting_pairing_code),
+                    value = pairingCode,
+                    onClick = {},
+                )
+            }
         }
     }
 }

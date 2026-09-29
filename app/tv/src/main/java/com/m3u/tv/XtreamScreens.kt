@@ -372,6 +372,8 @@ internal fun DialTextField(
                 keyboardType = keyboardType,
                 imeAction = imeAction,
                 autoCorrectEnabled = false,
+                // Moving onto the field with the remote only highlights it; OK opens the keyboard.
+                showKeyboardOnFocus = false,
             ),
             keyboardActions = KeyboardActions(
                 onNext = { focusManager.moveFocus(FocusDirection.Down) },

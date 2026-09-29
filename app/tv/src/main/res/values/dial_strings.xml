@@ -276,4 +276,12 @@
     <string name="dial_claude_error_offline">Couldn\'t reach Anthropic. Check the Fire TV\'s internet connection.</string>
     <string name="dial_claude_error_other">Something went wrong talking to Claude (%1$s). Try again.</string>
     <string name="dial_claude_error_no_response">no response</string>
+
+    <!-- Streams that drop, and closing the app -->
+    <string name="dial_player_reconnecting">Reconnecting…</string>
+    <string name="dial_player_stopped">Stream stopped. Press OK to try again.</string>
+    <string name="dial_exit_hint">Press Back again to close CHUD STREAMS</string>
+    <string name="dial_setting_back_twice_to_exit">Press Back twice to close the app</string>
+    <string name="dial_settings_section_phone_remote">Phone remote</string>
+    <string name="dial_setting_pairing_code">Pairing code</string>
 </resources>

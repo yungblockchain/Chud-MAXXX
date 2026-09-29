@@ -113,6 +113,8 @@ fun TvPlayerScreen(
     isFavourite: Boolean,
     isPlaying: Boolean,
     playbackState: Int,
+    reconnecting: Boolean,
+    failed: Boolean,
     preferences: DialPreferences,
     onPlayPause: () -> Unit,
     onNextChannel: () -> Unit,
@@ -236,9 +238,11 @@ fun TvPlayerScreen(
         }
     }
 
-    // Stop the Fire TV screensaver from kicking in during playback.
-    DisposableEffect(view, isPlaying) {
-        view.keepScreenOn = isPlaying
+    // Stop the Fire TV screensaver from kicking in during playback, and while a stream is
+    // loading or reconnecting (the screensaver would stop it for good).
+    val keepAwake = isPlaying || playbackState == Player.STATE_BUFFERING || reconnecting
+    DisposableEffect(view, keepAwake) {
+        view.keepScreenOn = keepAwake
         onDispose { view.keepScreenOn = false }
     }
 
@@ -366,8 +370,14 @@ fun TvPlayerScreen(
         }
 
         // With the controls open, the same state shows under the channel name instead.
-        if (playbackState == Player.STATE_BUFFERING && !controlsVisible) {
-            TuningPill(Modifier.align(Alignment.Center))
+        val stateNotice = when {
+            reconnecting -> stringResource(R.string.dial_player_reconnecting)
+            failed && playbackState == Player.STATE_IDLE -> stringResource(R.string.dial_player_stopped)
+            playbackState == Player.STATE_BUFFERING -> stringResource(R.string.dial_player_tuning)
+            else -> null
+        }
+        if (stateNotice != null && !controlsVisible) {
+            TuningPill(text = stateNotice, modifier = Modifier.align(Alignment.Center))
         }
 
         AnimatedVisibility(
@@ -411,6 +421,7 @@ fun TvPlayerScreen(
                     channel = channel,
                     channelNumber = channelNumber.takeIf { live },
                     playbackState = playbackState,
+                    notice = stateNotice,
                 )
                 if (!live && duration > 0L) {
                     ProgressLine(position = position, duration = duration)
@@ -521,6 +532,7 @@ private fun NowPlaying(
     channel: Channel?,
     channelNumber: Int?,
     playbackState: Int,
+    notice: String?,
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -543,10 +555,10 @@ private fun NowPlaying(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            val subtitle = if (playbackState == Player.STATE_READY) {
-                channel?.category?.takeIf { it.isNotBlank() }
-            } else {
-                playerStateText(playbackState)
+            val subtitle = when {
+                notice != null -> notice
+                playbackState == Player.STATE_READY -> channel?.category?.takeIf { it.isNotBlank() }
+                else -> playerStateText(playbackState)
             }
             if (subtitle != null) {
                 Text(
@@ -618,9 +630,9 @@ private fun ChannelNumber(number: Int, fontSize: Int) {
 }
 
 @Composable
-private fun TuningPill(modifier: Modifier = Modifier) {
+private fun TuningPill(text: String, modifier: Modifier = Modifier) {
     Text(
-        text = stringResource(R.string.dial_player_tuning),
+        text = text,
         color = TvColors.OnFocus,
         fontFamily = TvFonts.Body,
         fontWeight = FontWeight.Bold,
@@ -676,10 +688,10 @@ private fun formatTime(ms: Long): String {
 
 @Composable
 private fun playerStateText(playbackState: Int): String = when (playbackState) {
-    Player.STATE_BUFFERING -> stringResource(R.string.dial_player_tuning)
     Player.STATE_READY -> stringResource(string.feat_channel_playback_state_ready)
     Player.STATE_ENDED -> stringResource(string.feat_channel_playback_state_ended)
-    else -> stringResource(string.feat_channel_playback_state_idle)
+    // Idle without an error only lasts a moment, while a stream (re)starts.
+    else -> stringResource(R.string.dial_player_tuning)
 }
 
 /** Frame rate of the video track being played, or 0 if the stream doesn't say. */

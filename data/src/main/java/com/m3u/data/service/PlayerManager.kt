@@ -33,6 +33,9 @@ interface PlayerManager {
     val tracksGroups: StateFlow<List<Tracks.Group>>
     val cacheSpace: Flow<Long>
 
+    /** True while a stream that dropped is being reconnected automatically. */
+    val reconnecting: StateFlow<Boolean>
+
     fun chooseTrack(group: TrackGroup, index: Int)
     fun clearTrack(type: @C.TrackType Int)
     suspend fun play(
@@ -40,6 +43,19 @@ interface PlayerManager {
         applyContinueWatching: Boolean = true
     )
     suspend fun replay()
+
+    /**
+     * The app went out of sight (Home button, screensaver, TV switched off): stop streaming so
+     * the connection and the video decoder are free, but keep what was playing for [wake].
+     */
+    fun sleep()
+
+    /**
+     * Picks playback back up after [sleep], or after a stream stopped with an error: live
+     * channels reconnect at the live edge, films and episodes carry on from where they were.
+     * Does nothing while the stream is still running.
+     */
+    fun wake()
     fun release()
     fun clearCache()
     fun pauseOrContinue(value: Boolean)

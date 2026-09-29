@@ -1,7 +1,14 @@
 package com.m3u.tv
 
+import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
+import android.os.Process
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -10,39 +17,45 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import com.m3u.data.database.model.Channel
@@ -50,6 +63,7 @@ import com.m3u.data.database.model.isSeries
 import com.m3u.data.database.model.isVod
 import com.m3u.data.tv.model.keyCode
 import com.m3u.i18n.R.string
+import kotlinx.coroutines.delay
 
 /** Launch extra naming the tab to open first, e.g. `--es destination games` (see [tvDestinationFromExtra]). */
 const val EXTRA_DESTINATION = "destination"
@@ -64,6 +78,29 @@ fun tvDestinationFromExtra(value: String?): TvDestination? {
     return TvDestination.entries.firstOrNull { it.name.lowercase() == name }
 }
 
+/** How long the "press Back again" hint waits for the second press. */
+private const val EXIT_WINDOW_MS = 2_500L
+
+/**
+ * Closes the app for good: the screen goes, then the process, so nothing stays in memory.
+ * (Android would otherwise keep it cached in the background.)
+ */
+private fun closeAppCompletely(activity: Activity) {
+    activity.finishAndRemoveTask()
+    Handler(Looper.getMainLooper()).postDelayed(
+        { Process.killProcess(Process.myPid()) },
+        EXIT_PROCESS_DELAY_MS,
+    )
+}
+
+private const val EXIT_PROCESS_DELAY_MS = 400L
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 @Composable
 fun App(
     initialDestination: TvDestination? = null,
@@ -75,6 +112,8 @@ fun App(
     val currentChannel by viewModel.currentChannel.collectAsStateWithLifecycle()
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val reconnecting by viewModel.reconnecting.collectAsStateWithLifecycle()
+    val playbackFailed by viewModel.playbackFailed.collectAsStateWithLifecycle()
     val remoteControlCode by viewModel.remoteControlCode.collectAsStateWithLifecycle()
     val view = LocalView.current
     val localeTag = LocalConfiguration.current.locales[0].toLanguageTag()
@@ -194,6 +233,45 @@ fun App(
         }
     }
 
+    // Back on the main menu: the first press says "press again", the second closes the app
+    // completely (the process ends, so everything it held in memory is freed). Screens with their
+    // own Back step (a game, a details page) handle Back first.
+    var exitArmedAt by remember { mutableLongStateOf(0L) }
+    var exitHintVisible by remember { mutableStateOf(false) }
+    BackHandler(
+        enabled = backTarget == TvAppBackTarget.ACTIVITY && details == null &&
+            !showSplash && preferences.backTwiceToExit
+    ) {
+        val now = SystemClock.uptimeMillis()
+        if (exitHintVisible && now - exitArmedAt < EXIT_WINDOW_MS) {
+            viewModel.releasePlayer()
+            view.context.findActivity()?.let(::closeAppCompletely)
+        } else {
+            exitArmedAt = now
+            exitHintVisible = true
+        }
+    }
+    LaunchedEffect(exitArmedAt) {
+        if (exitArmedAt == 0L) return@LaunchedEffect
+        delay(EXIT_WINDOW_MS)
+        exitHintVisible = false
+    }
+
+    // Home button, screensaver or the TV switching off: stop the stream so it doesn't die in the
+    // background, then pick it up again when the app is back on screen.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> viewModel.sleepPlayer()
+                Lifecycle.Event.ON_START -> viewModel.wakePlayer()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     LaunchedEffect(view) {
         viewModel.remoteDirections.collect { direction ->
             view.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, direction.keyCode))
@@ -306,6 +384,7 @@ fun App(
                             preferences = preferences,
                             onUpdate = dial::updatePreferences,
                             onClearHistory = dial::clearContinueWatching,
+                            pairingCode = remoteControlCode?.toString()?.padStart(6, '0'),
                         )
                     },
                 )
@@ -361,6 +440,8 @@ fun App(
                 isFavourite = playingId != null && state.favorites.any { it.id == playingId },
                 isPlaying = isPlaying,
                 playbackState = playbackState,
+                reconnecting = reconnecting,
+                failed = playbackFailed,
                 preferences = preferences,
                 onPlayPause = { viewModel.pauseOrContinue(!isPlaying) },
                 onNextChannel = { zap(1) },
@@ -375,28 +456,25 @@ fun App(
             BrandSplash(onFinished = { splashDone = true })
         }
 
-        remoteControlCode?.let { code ->
-            val displayCode = code.toString().padStart(6, '0')
-            val spokenCode = displayCode.toCharArray().joinToString(separator = " ")
-            val pairingCodeDescription =
-                stringResource(string.ui_remote_control_pairing_code, spokenCode)
-            // Phone-remote pairing code, kept small at the foot of the menu rail so it never
-            // covers the tab headers (Markets chips, Guide dates) in the top-right corner.
+        AnimatedVisibility(
+            visible = exitHintVisible && surface == TvSurface.Browse,
+            enter = fadeIn() + slideInVertically { it / 2 },
+            exit = fadeOut() + slideOutVertically { it / 2 },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 32.dp)
+        ) {
             Text(
-                text = displayCode,
-                color = TvColors.TextSecondary,
+                text = stringResource(R.string.dial_exit_hint),
+                color = TvColors.OnFocus,
                 fontFamily = TvFonts.Body,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .width(112.dp)
-                    .padding(bottom = 2.dp)
-                    .clearAndSetSemantics {
-                        contentDescription = pairingCodeDescription
-                        liveRegion = LiveRegionMode.Polite
-                    }
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(TvColors.Focus)
+                    .padding(horizontal = 24.dp, vertical = 10.dp)
+                    .semantics { liveRegion = LiveRegionMode.Polite }
             )
         }
     }

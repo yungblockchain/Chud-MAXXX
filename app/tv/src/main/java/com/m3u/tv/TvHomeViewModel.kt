@@ -49,11 +49,13 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -123,6 +125,10 @@ class TvHomeViewModel @Inject constructor(
     val currentChannel: StateFlow<Channel?> = playerManager.channel
     val isPlaying: StateFlow<Boolean> = playerManager.isPlaying
     val playbackState: StateFlow<Int> = playerManager.playbackState
+    val reconnecting: StateFlow<Boolean> = playerManager.reconnecting
+    val playbackFailed: StateFlow<Boolean> = playerManager.playbackException
+        .map { it != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), false)
     val remoteControlCode: StateFlow<Int?> = tvRepository.broadcastCodeOnTv
     val remoteDirections = dPadReactionService.incoming
     private var loadChannelsJob: Job? = null
@@ -254,7 +260,23 @@ class TvHomeViewModel @Inject constructor(
     }
 
     fun pauseOrContinue(continuePlayback: Boolean) {
-        playerManager.pauseOrContinue(continuePlayback)
+        // A stream that stopped (dropped, or the Fire TV slept) starts again rather than
+        // "continuing" nothing; live channels rejoin at the live edge.
+        if (continuePlayback && playerManager.playbackState.value == Player.STATE_IDLE) {
+            playerManager.wake()
+        } else {
+            playerManager.pauseOrContinue(continuePlayback)
+        }
+    }
+
+    /** The app left the screen: free the stream and decoder, keeping what was playing. */
+    fun sleepPlayer() {
+        playerManager.sleep()
+    }
+
+    /** The app is back on screen: pick the stream up again if it stopped. */
+    fun wakePlayer() {
+        playerManager.wake()
     }
 
     fun releasePlayer() {

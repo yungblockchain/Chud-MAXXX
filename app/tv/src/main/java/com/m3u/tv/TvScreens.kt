@@ -68,6 +68,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -2693,6 +2694,7 @@ private fun TvExtensionSettingControl(
             ExtensionSettingType.SECRET -> {
                 var focused by remember { mutableStateOf(false) }
                 val actionFocusRequester = remember(field.key) { FocusRequester() }
+                val extensionKeyboard = LocalSoftwareKeyboardController.current
                 val singleLineInput =
                     field.type != ExtensionSettingType.TEXT || field.networkOrigin
                 if (field.type == ExtensionSettingType.SECRET && secretConfigured) {
@@ -2715,6 +2717,11 @@ private fun TvExtensionSettingControl(
 
                                     Key.DirectionDown ->
                                         actionFocusRequester.requestFocus()
+
+                                    Key.DirectionCenter, Key.Enter -> {
+                                        extensionKeyboard?.show()
+                                        true
+                                    }
 
                                     else -> false
                                 }
@@ -2757,6 +2764,7 @@ private fun TvExtensionSettingControl(
                                 else -> KeyboardType.Text
                             },
                             autoCorrectEnabled = false,
+                            showKeyboardOnFocus = false,
                         ),
                         visualTransformation = if (field.type == ExtensionSettingType.SECRET) {
                             PasswordVisualTransformation()
