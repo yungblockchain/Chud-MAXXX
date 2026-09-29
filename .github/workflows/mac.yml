@@ -103,15 +103,21 @@ jobs:
         run: |
           /usr/bin/pgrep -q oahd || softwareupdate --install-rosetta --agree-to-license || true
           APP="build/CHUD STREAMS.app/Contents/MacOS/ChudStreams"
-          for f in Tests/fixtures/sample.mkv Tests/fixtures/sample.ts; do
-            echo "::group::Self-test $f"
-            if ! "$APP" --selftest-mpv "$f" 2>&1 | tee selftest.log; then
-              echo "::error title=Player self-test failed on $f::$(tail -25 selftest.log | tr '\n' '|' | cut -c1-3000)"
-              exit 1
-            fi
-            echo "::notice title=Player self-test $f::$(grep '\[selftest\]' selftest.log | tr '\n' '|' | cut -c1-3000)"
-            echo "::endgroup::"
+          failed=0
+          for mode in auto-safe no; do
+            for f in Tests/fixtures/sample.mkv Tests/fixtures/sample.ts; do
+              echo "::group::Self-test $f (hwdec=$mode)"
+              if "$APP" --selftest-mpv "$f" --hwdec "$mode" > selftest.log 2>&1; then
+                echo "::notice title=Player self-test passed: $f hwdec=$mode::$(grep '\[selftest\]' selftest.log | tr '\n' '|' | cut -c1-2500)"
+              else
+                failed=1
+                echo "::error title=Player self-test failed: $f hwdec=$mode::$(tail -45 selftest.log | tr '\n' '|' | cut -c1-5000)"
+              fi
+              cat selftest.log
+              echo "::endgroup::"
+            done
           done
+          exit $failed
 
       - name: Package the app
         working-directory: mac

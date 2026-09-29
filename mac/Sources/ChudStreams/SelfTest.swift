@@ -12,7 +12,8 @@ enum SelfTest {
     static func runIfRequested() {
         let args = CommandLine.arguments
         if let index = args.firstIndex(of: "--selftest-mpv"), index + 1 < args.count {
-            let passed = mpvRender(file: args[index + 1])
+            let hwdec = args.firstIndex(of: "--hwdec").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } ?? "auto-safe"
+            let passed = mpvRender(file: args[index + 1], hwdec: hwdec)
             print(passed ? "SELFTEST PASSED" : "SELFTEST FAILED")
             exit(passed ? 0 : 1)
         }
@@ -24,7 +25,7 @@ enum SelfTest {
     }
 
     /// Plays `file` in mpv through an offscreen OpenGL framebuffer and checks the picture.
-    static func mpvRender(file: String) -> Bool {
+    static func mpvRender(file: String, hwdec: String) -> Bool {
         log("mpv client API \(mpv_client_api_version() >> 16).\(mpv_client_api_version() & 0xFFFF)")
         guard FileManager.default.fileExists(atPath: file) else {
             log("no such file: \(file)")
@@ -70,7 +71,7 @@ enum SelfTest {
             log("mpv_create failed")
             return false
         }
-        for (name, value) in [("vo", "libmpv"), ("ao", "null"), ("hwdec", "auto-safe"), ("keep-open", "yes"),
+        for (name, value) in [("vo", "libmpv"), ("ao", "null"), ("hwdec", hwdec), ("keep-open", "yes"),
                               ("sid", "auto"), ("subs-fallback-forced", "always"), ("terminal", "no")] {
             mpv_set_option_string(handle, name, value)
         }
@@ -78,6 +79,8 @@ enum SelfTest {
             log("mpv_initialize failed")
             return false
         }
+        mpv_request_log_messages(handle, "v")
+        log("hwdec requested: \(hwdec)")
         var initParams = mpv_opengl_init_params(get_proc_address: { _, name in
             guard let name else { return nil }
             let symbol = CFStringCreateWithCString(kCFAllocatorDefault, name, CFStringBuiltInEncodings.ASCII.rawValue)
@@ -113,6 +116,14 @@ enum SelfTest {
                 case MPV_EVENT_FILE_LOADED:
                     fileLoaded = true
                     log("file loaded")
+                case MPV_EVENT_LOG_MESSAGE:
+                    let message = event.pointee.data.assumingMemoryBound(to: mpv_event_log_message.self).pointee
+                    let prefix = String(cString: message.prefix)
+                    let text = String(cString: message.text).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let level = String(cString: message.level)
+                    if level == "error" || level == "warn" || ["vo/libmpv", "vd", "libmpv_render", "hwdec"].contains(where: { prefix.hasPrefix($0) }) {
+                        print("[mpv \(level) \(prefix)] \(text)")
+                    }
                 case MPV_EVENT_END_FILE:
                     let end = event.pointee.data.assumingMemoryBound(to: mpv_event_end_file.self).pointee
                     if end.reason == MPV_END_FILE_REASON_ERROR {
@@ -154,7 +165,7 @@ enum SelfTest {
         var position = 0.0
         mpv_get_property(handle, "time-pos", MPV_FORMAT_DOUBLE, &position)
         log(String(format: "played to %.2fs with %d frames rendered", position, renders))
-        for name in ["video-codec", "hwdec-current", "video-params/pixelformat", "current-vo", "sid", "aid"] {
+        for name in ["video-codec", "hwdec-current", "video-params/pixelformat", "video-params/hw-pixelformat", "video-out-params/pixelformat", "current-vo", "sid", "aid"] {
             if let value = mpv_get_property_string(handle, name) {
                 log("\(name) = \(String(cString: value))")
                 mpv_free(value)
