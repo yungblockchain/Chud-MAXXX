@@ -405,6 +405,13 @@ private fun ProgrammeCell(
     val ended = programme.hasEndedBy(now)
     val replayable = ended && programme.hasArchive
     val width = ((programme.endMillis - programme.startMillis) / MINUTE_MS.toFloat() * DP_PER_MINUTE).dp
+    // A programme that began before the visible window keeps its title at the window's left
+    // edge rather than off-screen, where only the end of it ("...iew") would show.
+    val hiddenStart = if (programme.startMillis < windowStart) {
+        minOf(offsetFor(windowStart, programme.startMillis), maxOf(width - 48.dp, 0.dp))
+    } else {
+        0.dp
+    }
     FocusFrame(
         onClick = onClick,
         onFocus = onFocus,
@@ -440,7 +447,7 @@ private fun ProgrammeCell(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 10.dp)
+                .padding(start = 10.dp + hiddenStart, end = 10.dp)
         ) {
             if (replayable) {
                 Icon(

@@ -26,12 +26,19 @@ import kotlinx.serialization.json.putJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.awt.Font
+import java.awt.GradientPaint
+import java.awt.RenderingHints
+import java.awt.image.BufferedImage
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Base64
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.ConcurrentHashMap
+import javax.imageio.ImageIO
+import java.awt.Color as AwtColor
 
 private const val DEFAULT_HOST = "0.0.0.0"
 private const val DEFAULT_PORT = 8080
@@ -52,6 +59,8 @@ private val json = Json {
 }
 
 fun main(args: Array<String>) {
+    // Poster images are drawn with java.awt, which needs no display in headless mode.
+    System.setProperty("java.awt.headless", "true")
     val options = ServerOptions.parse(args)
     embeddedServer(
         factory = Netty,
@@ -73,6 +82,14 @@ internal fun Application.mockServerModule() {
 
         get("/health") {
             call.respondText("ok", ContentType.Text.Plain)
+        }
+
+        // Logos and posters referenced by the playlists and Xtream streams (news.png, movie.png…).
+        get("/images/{name}.png") {
+            call.respondBytes(
+                bytes = posterPng(call.parameters["name"].orEmpty()),
+                contentType = ContentType.Image.PNG
+            )
         }
 
         post("/reference-provider/login") {
@@ -934,6 +951,58 @@ private fun episode(
     put("episode_num", number)
     put("title", title)
     put("container_extension", "mp4")
+}
+
+/** Gradient pairs for generated posters, picked by the image name so each one stays the same. */
+private val posterPalettes = listOf(
+    0x12C2E9 to 0x6A3093,
+    0xF64F59 to 0x2B1055,
+    0x00F5A0 to 0x00416A,
+    0xFDC830 to 0xC0392B,
+    0xC471ED to 0x12C2E9,
+    0xFF6FD8 to 0x3813C2,
+)
+
+/**
+ * A 400×600 PNG poster: a diagonal gradient with the image name written large, so screens that
+ * show logos and posters have something to show.
+ */
+private fun posterPng(name: String): ByteArray {
+    val width = 400
+    val height = 600
+    val (top, bottom) = posterPalettes[Math.floorMod(name.hashCode(), posterPalettes.size)]
+    val image = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+    val graphics = image.createGraphics()
+    try {
+        graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        graphics.setRenderingHint(
+            RenderingHints.KEY_TEXT_ANTIALIASING,
+            RenderingHints.VALUE_TEXT_ANTIALIAS_ON
+        )
+        graphics.paint = GradientPaint(
+            0f, 0f, AwtColor(top),
+            width.toFloat(), height.toFloat(), AwtColor(bottom)
+        )
+        graphics.fillRect(0, 0, width, height)
+        graphics.color = AwtColor(255, 255, 255, 40)
+        graphics.fillOval(-120, height - 300, 420, 420)
+        graphics.fillOval(width - 180, -90, 300, 300)
+        // Fonts can be missing on a bare server; the gradient alone is still a usable poster.
+        runCatching {
+            val label = name.replace('-', ' ').replace('_', ' ').uppercase()
+            graphics.color = AwtColor.WHITE
+            graphics.font = Font(Font.SANS_SERIF, Font.BOLD, 52)
+            val metrics = graphics.fontMetrics
+            val x = ((width - metrics.stringWidth(label)) / 2).coerceAtLeast(16)
+            graphics.drawString(label, x, height / 2 + metrics.ascent / 2)
+        }
+    } finally {
+        graphics.dispose()
+    }
+    return ByteArrayOutputStream().use { output ->
+        ImageIO.write(image, "png", output)
+        output.toByteArray()
+    }
 }
 
 private fun transportStreamPlaceholder(channel: String, number: Int): ByteArray {

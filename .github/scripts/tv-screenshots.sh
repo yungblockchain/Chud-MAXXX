@@ -44,9 +44,16 @@ open_tab() {
 }
 # Type into the focused text field with the on-screen keyboard closed, so the key presses reach
 # the field rather than the keyboard.
+# A few characters at a time: on Android 11 a long burst loses its tail when the keyboard
+# pops back up part-way through.
 type_text() {
+    local text="$1" i
     hide_keyboard
-    adb shell input text "$1"
+    for (( i = 0; i < ${#text}; i += 4 )); do
+        adb shell input text "${text:i:4}"
+        sleep 0.4
+        hide_keyboard
+    done
     sleep 1
     hide_keyboard
 }

@@ -52,6 +52,7 @@ physical device:
 - `/playlist/mixed.m3u` returns live, VOD, and series-like M3U entries.
 - `/hls/{channel}/index.m3u8` returns a small media playlist.
 - `/hls/{channel}/segment-{number}.ts` returns deterministic placeholder TS bytes.
+- `/images/{name}.png` returns a generated 400×600 poster for the logos and posters the fixtures use.
 - `/player_api.php?username=m3u&password=m3u` returns Xtream account/server info.
 - `/player_api.php?username=m3u&password=m3u&action=get_live_categories`
 - `/player_api.php?username=m3u&password=m3u&action=get_live_streams`
