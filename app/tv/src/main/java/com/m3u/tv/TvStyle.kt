@@ -14,6 +14,7 @@ import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.AllInclusive
+import androidx.compose.material.icons.rounded.Newspaper
 import androidx.compose.material.icons.rounded.SportsSoccer
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.SportsEsports
@@ -80,6 +81,8 @@ enum class TvDestination(
     Guide(Icons.Rounded.DateRange),
     /** Live scores, fixtures, lineups. */
     MatchCentre(Icons.Rounded.SportsSoccer),
+    /** RSS and Atom desks. Categories and sources are saved on the device. */
+    News(Icons.Rounded.Newspaper),
     Favorites(Icons.Rounded.Favorite),
     /** Saved films and series, and what's half-watched. */
     MyLibrary(Icons.Rounded.Bookmarks),

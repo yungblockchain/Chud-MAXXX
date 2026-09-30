@@ -212,6 +212,7 @@ fun TvBrowsePane(
             destination != TvDestination.Claude &&
             destination != TvDestination.Infinite &&
             destination != TvDestination.MatchCentre &&
+            destination != TvDestination.News &&
             destination != TvDestination.Account
         ) {
             // Dial: first run goes straight to Xtream sign-in on the TV itself, instead of
@@ -225,6 +226,7 @@ fun TvBrowsePane(
             destination != TvDestination.Claude &&
             destination != TvDestination.Infinite &&
             destination != TvDestination.MatchCentre &&
+            destination != TvDestination.News &&
             destination != TvDestination.Account
         ) {
             LibraryRestoring()
@@ -280,6 +282,8 @@ fun TvBrowsePane(
                     )
 
                     TvDestination.MatchCentre -> MatchCentreScreen(onWatch = onWatchFixture)
+
+                    TvDestination.News -> NewsScreen()
 
                     TvDestination.Favorites -> favouritesContent()
 

@@ -36,7 +36,7 @@ android {
         applicationId = "app.dial.maxxx"
         minSdk = 26
         targetSdk = 33
-        versionCode = 205
+        versionCode = 206
         versionName = "MAXXX"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

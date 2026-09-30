@@ -516,6 +516,7 @@
     <string name="dial_nav_addons">Addons</string>
     <string name="dial_nav_infinite">Infinite</string>
     <string name="dial_nav_match">Match Centre</string>
+    <string name="dial_nav_news">News</string>
     <string name="dial_settings_tab_addons">Addons</string>
     <string name="dial_library_restoring">Opening your Xtream library</string>
     <string name="dial_library_restoring_hint">You stay signed in. Live TV, films and series appear as soon as the list finishes downloading.</string>

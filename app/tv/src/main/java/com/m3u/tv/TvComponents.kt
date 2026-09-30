@@ -346,6 +346,7 @@ private fun TvDestination.label(): String = when (this) {
     TvDestination.Infinite -> stringResource(R.string.dial_nav_infinite)
     TvDestination.Guide -> stringResource(R.string.dial_nav_guide)
     TvDestination.MatchCentre -> stringResource(R.string.dial_nav_match)
+    TvDestination.News -> stringResource(R.string.dial_nav_news)
     TvDestination.Favorites -> stringResource(string.tv_favorites_title)
     TvDestination.MyLibrary -> stringResource(R.string.dial_nav_my_library)
     TvDestination.Markets -> stringResource(R.string.dial_nav_markets)
