@@ -20,14 +20,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.sin
 
-/** One full turn every nine seconds: slow enough to read as a sign, not a loading spinner. */
-private const val SECONDS_PER_TURN = 9f
+/** One full turn every sixteen seconds. Slow enough to read as a sign, not a spinner. */
+private const val SECONDS_PER_TURN = 16f
+
+/** Orange slices behind the face. They spread apart as the coin turns edge-on, which is the thickness. */
+private const val COIN_SLICES = 8
+private val CoinEdge = Color(0xFFE23B12)
 
 /**
- * The CHUD STREAMS badge turning slowly around its vertical axis, like a coin on a neon sign,
+ * The Chud MAXXX badge turning slowly around its vertical axis, like a thick coin,
  * with a steady cyan glow behind it that doesn't turn.
  *
  * - Only the draw layer changes each frame (no recomposition), so it costs the Firestick very little.
@@ -76,6 +83,22 @@ fun SpinningBrandLogo(
                 )
             }
     ) {
+        repeat(COIN_SLICES) { slice ->
+            Box(
+                Modifier
+                    .fillMaxSize(0.9f)
+                    .graphicsLayer {
+                        val spread = sin(Math.toRadians(angle.toDouble())).toFloat()
+                        rotationY = angle
+                        // Parent-space shift. Face-on the slices stack; edge-on they open into a rim.
+                        translationX = (slice - (COIN_SLICES - 1) / 2f) * 1.15f.dp.toPx() * spread
+                        cameraDistance = 8f * density
+                        shape = CircleShape
+                        clip = true
+                    }
+                    .background(CoinEdge)
+            )
+        }
         Image(
             painter = painterResource(R.drawable.brand_mascot),
             // Decorative: the launcher already announces the app name.
@@ -83,10 +106,12 @@ fun SpinningBrandLogo(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    // Read inside the layer block so each frame only redraws, never recomposes.
                     rotationY = angle
-                    // A long camera distance gives real perspective instead of a flat squash.
-                    cameraDistance = 12f * density
+                    // Closer than a flat billboard so the turn has real perspective.
+                    cameraDistance = 8f * density
+                    shadowElevation = 10.dp.toPx()
+                    shape = CircleShape
+                    clip = true
                 }
         )
     }

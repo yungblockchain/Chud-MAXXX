@@ -1,5 +1,7 @@
-"""CHUD STREAMS branding: turns logo_source.jpeg (black line art on white) into a neon
-90s-cyberpunk badge, then writes the launcher icons, Fire TV banner and splash image."""
+"""Older line-art generator. The live Chud MAXXX badge is logo_maxxx.jpg, already
+written into brand_mascot.png, the launcher icons, and dial_banner.png.
+Do not run this script over those files; it would put the old face back.
+"""
 import os
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 

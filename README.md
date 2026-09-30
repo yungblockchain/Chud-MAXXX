@@ -1,5 +1,5 @@
 > **This repository is Chud MAXXX**, a separate Fire TV app from earlier [CHUD STREAMS](https://github.com/yungblockchain/Chud-Streams).
-> On-screen name: **Chud MAXXX**. Application id: `app.dial.maxxx`. Version name: `MAXXX` (versionCode 200).
+> On-screen name: **Chud MAXXX**. Application id: `app.dial.maxxx`. Version name: `MAXXX` (versionCode 201).
 > It installs beside CHUD STREAMS (`app.dial.tv`) instead of replacing it. The extension permission is `app.dial.maxxx.permission.BIND_EXTENSION_HOST` for the same reason.
 > Earlier CHUD STREAMS is not changed by commits in this repo.
 > Build and install notes that still say CHUD STREAMS in [DIAL.md](DIAL.md) describe the shared Fire TV shell. Use the names in this block when they disagree.

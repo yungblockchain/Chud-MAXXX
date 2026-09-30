@@ -5,6 +5,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,8 +33,8 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 
 /**
- * Launch screen: the logo badge turns slowly around its vertical axis like a coin (two
- * turns, easing to a stop face-on), then the screen fades into the app. About three and a half
+ * Launch screen: the logo badge turns slowly around its vertical axis like a thick coin
+ * (one turn, easing to a stop face-on), then the screen fades into the app. About four
  * seconds in all; it can be switched off under Settings > Player and startup.
  */
 @Composable
@@ -45,8 +46,8 @@ fun BrandSplash(onFinished: () -> Unit) {
 
     LaunchedEffect(Unit) {
         spin.animateTo(
-            targetValue = 720f,
-            animationSpec = tween(durationMillis = 3_000, easing = FastOutSlowInEasing),
+            targetValue = 360f,
+            animationSpec = tween(durationMillis = 3_600, easing = FastOutSlowInEasing),
         )
         fade.animateTo(0f, animationSpec = tween(durationMillis = 400))
         currentOnFinished()
@@ -71,8 +72,9 @@ fun BrandSplash(onFinished: () -> Unit) {
                     .size(220.dp)
                     .graphicsLayer {
                         rotationY = spin.value
-                        // A longer camera distance keeps the turn looking like depth, not a squash.
-                        cameraDistance = 14f * density
+                        cameraDistance = 8f * density
+                        shape = CircleShape
+                        clip = true
                     }
             )
             // Wordmark with a magenta ghost offset behind it, like a misregistered anime title card.
