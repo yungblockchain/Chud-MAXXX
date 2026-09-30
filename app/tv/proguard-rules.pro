@@ -281,3 +281,6 @@
 -dontwarn com.github.luben.zstd.util.Native
 -dontwarn com.sun.nio.file.SensitivityWatchEventModifier
 -dontwarn org.osgi.annotation.bundle.Export
+
+# Addon screens are first reached from Settings. Keep them so R8 cannot strip the page and crash on open.
+-keep class com.m3u.tv.stremio.** { *; }

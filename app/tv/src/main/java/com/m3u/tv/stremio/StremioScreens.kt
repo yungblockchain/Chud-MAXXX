@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -359,23 +361,28 @@ private fun AddonsPage(state: StremioUiState, viewModel: StremioViewModel) {
     var manifest by rememberSaveable { mutableStateOf("") }
     var editingKey by rememberSaveable { mutableStateOf<String?>(null) }
     var torr by rememberSaveable(state.torrServe) { mutableStateOf(state.torrServe) }
-    LazyColumn(
-        contentPadding = PaddingValues(start = 48.dp, end = 64.dp, top = 28.dp, bottom = 48.dp),
+    // A plain column, not a lazy list. The lazy list crashed this page: its keys collided with
+    // the preset rows, and a nested scroll inside Settings measured it with an infinite height.
+    Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(start = 48.dp, end = 64.dp, top = 28.dp, bottom = 48.dp),
     ) {
-        item {
-            Text(
-                text = stringResource(R.string.dial_addons_manage),
-                color = TvColors.TextPrimary,
-                fontFamily = TvFonts.Accent,
-                fontSize = 28.sp,
-            )
-        }
-        state.message?.let { message -> item { StatusLine(message) } }
-        item { StatusLine(stringResource(R.string.dial_addons_presets_hint)) }
-        items(AddonCatalogPresets.all, key = { "preset-${it.id}" }) { preset ->
-            val installed = state.addons.any { it.id == preset.id || (preset.manifestUrl.isNotBlank() && it.manifestUrl.startsWith(preset.manifestUrl.substringBefore("/manifest"))) }
+        Text(
+            text = stringResource(R.string.dial_addons_manage),
+            color = TvColors.TextPrimary,
+            fontFamily = TvFonts.Accent,
+            fontSize = 28.sp,
+        )
+        state.message?.let { message -> StatusLine(message) }
+        StatusLine(stringResource(R.string.dial_addons_presets_hint))
+        AddonCatalogPresets.all.forEach { preset ->
+            val installed = state.addons.any { addon ->
+                addon.id == preset.id || preset.manifestUrl.isNotBlank() &&
+                    addon.manifestUrl.startsWith(preset.manifestUrl.substringBefore("/manifest"))
+            }
             FocusFrame(
                 onClick = { viewModel.installPreset(preset) },
                 semanticsLabel = preset.name,
@@ -398,28 +405,24 @@ private fun AddonsPage(state: StremioUiState, viewModel: StremioViewModel) {
                 }
             }
         }
-        item {
-            DialTextField(
-                label = stringResource(R.string.dial_addons_paste),
-                value = manifest,
-                onValueChange = { manifest = it },
-                keyboardType = KeyboardType.Uri,
-                imeAction = ImeAction.Done,
-                readOnly = false,
-                onDone = { viewModel.install(manifest) },
-            )
-        }
-        item {
-            TvActionButton(
-                text = stringResource(R.string.dial_addons_install),
-                icon = Icons.Rounded.CheckCircle,
-                enabled = manifest.isNotBlank(),
-                onClick = { viewModel.install(manifest) },
-            )
-        }
+        DialTextField(
+            label = stringResource(R.string.dial_addons_paste),
+            value = manifest,
+            onValueChange = { manifest = it },
+            keyboardType = KeyboardType.Uri,
+            imeAction = ImeAction.Done,
+            readOnly = false,
+            onDone = { viewModel.install(manifest) },
+        )
+        TvActionButton(
+            text = stringResource(R.string.dial_addons_install),
+            icon = Icons.Rounded.CheckCircle,
+            enabled = manifest.isNotBlank(),
+            onClick = { viewModel.install(manifest) },
+        )
         if (state.addons.isNotEmpty()) {
-            item { StatusLine(stringResource(R.string.dial_addons_installed_header)) }
-            items(state.addons, key = { "installed-${it.id}-${it.manifestUrl}" }) { addon ->
+            StatusLine(stringResource(R.string.dial_addons_installed_header))
+            state.addons.forEach { addon ->
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     TvActionButton(
                         text = if (addon.enabled) addon.name else "${addon.name} (off)",
@@ -435,69 +438,59 @@ private fun AddonsPage(state: StremioUiState, viewModel: StremioViewModel) {
                 }
             }
         }
-        item { StatusLine(stringResource(R.string.dial_services_section_debrid)) }
-        item {
-            SecretRow(
-                name = SecretName.RealDebrid,
-                label = stringResource(R.string.dial_services_realdebrid),
-                hint = stringResource(R.string.dial_services_realdebrid_hint),
-                saved = state.hasRealDebrid,
-                editing = editingKey == SecretName.RealDebrid.key,
-                onEdit = { editingKey = it?.key },
-                onSave = viewModel::saveSecret,
-                onRemove = viewModel::removeSecret,
-            )
-        }
-        item {
-            SecretRow(
-                name = SecretName.TorBox,
-                label = stringResource(R.string.dial_services_torbox),
-                hint = stringResource(R.string.dial_services_torbox_hint),
-                saved = state.hasTorBox,
-                editing = editingKey == SecretName.TorBox.key,
-                onEdit = { editingKey = it?.key },
-                onSave = viewModel::saveSecret,
-                onRemove = viewModel::removeSecret,
-            )
-        }
-        item {
+        StatusLine(stringResource(R.string.dial_services_section_debrid))
+        SecretRow(
+            name = SecretName.RealDebrid,
+            label = stringResource(R.string.dial_services_realdebrid),
+            hint = stringResource(R.string.dial_services_realdebrid_hint),
+            saved = state.hasRealDebrid,
+            editing = editingKey == SecretName.RealDebrid.key,
+            onEdit = { editingKey = it?.key },
+            onSave = viewModel::saveSecret,
+            onRemove = viewModel::removeSecret,
+        )
+        SecretRow(
+            name = SecretName.TorBox,
+            label = stringResource(R.string.dial_services_torbox),
+            hint = stringResource(R.string.dial_services_torbox_hint),
+            saved = state.hasTorBox,
+            editing = editingKey == SecretName.TorBox.key,
+            onEdit = { editingKey = it?.key },
+            onSave = viewModel::saveSecret,
+            onRemove = viewModel::removeSecret,
+        )
+        TvActionButton(
+            text = stringResource(R.string.dial_addons_p2p),
+            icon = Icons.Rounded.PlayArrow,
+            selected = state.p2p,
+            onClick = { viewModel.setP2p(!state.p2p) },
+            supportingText = if (state.p2p) stringResource(R.string.dial_addons_p2p_on) else stringResource(R.string.dial_addons_p2p_off),
+        )
+        DialTextField(
+            label = stringResource(R.string.dial_addons_torrserve),
+            value = torr,
+            onValueChange = { torr = it },
+            keyboardType = KeyboardType.Uri,
+            imeAction = ImeAction.Done,
+            readOnly = false,
+            onDone = { viewModel.setTorrServe(torr) },
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TvActionButton(
-                text = stringResource(R.string.dial_addons_p2p),
-                icon = Icons.Rounded.PlayArrow,
-                selected = state.p2p,
-                onClick = { viewModel.setP2p(!state.p2p) },
-                supportingText = if (state.p2p) stringResource(R.string.dial_addons_p2p_on) else stringResource(R.string.dial_addons_p2p_off),
+                text = stringResource(R.string.dial_action_save),
+                icon = Icons.Rounded.CheckCircle,
+                onClick = { viewModel.setTorrServe(torr) },
             )
-        }
-        item {
-            DialTextField(
-                label = stringResource(R.string.dial_addons_torrserve),
-                value = torr,
-                onValueChange = { torr = it },
-                keyboardType = KeyboardType.Uri,
-                imeAction = ImeAction.Done,
-                readOnly = false,
-                onDone = { viewModel.setTorrServe(torr) },
+            TvActionButton(
+                text = stringResource(R.string.dial_addons_torrserve_test),
+                icon = Icons.Rounded.Search,
+                onClick = viewModel::testTorrServe,
+                supportingText = when (state.torrServeUp) {
+                    true -> stringResource(R.string.dial_addons_torrserve_up)
+                    false -> stringResource(R.string.dial_addons_torrserve_down)
+                    null -> null
+                },
             )
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TvActionButton(
-                    text = stringResource(R.string.dial_action_save),
-                    icon = Icons.Rounded.CheckCircle,
-                    onClick = { viewModel.setTorrServe(torr) },
-                )
-                TvActionButton(
-                    text = stringResource(R.string.dial_addons_torrserve_test),
-                    icon = Icons.Rounded.Search,
-                    onClick = viewModel::testTorrServe,
-                    supportingText = when (state.torrServeUp) {
-                        true -> stringResource(R.string.dial_addons_torrserve_up)
-                        false -> stringResource(R.string.dial_addons_torrserve_down)
-                        null -> null
-                    },
-                )
-            }
         }
     }
 }

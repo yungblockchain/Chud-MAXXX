@@ -64,16 +64,22 @@ class StremioViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            store.addons.collect { list ->
-                _state.update {
-                    it.copy(
-                        addons = list,
-                        hasRealDebrid = secrets.has(SecretName.RealDebrid),
-                        hasTorBox = secrets.has(SecretName.TorBox),
-                        p2p = store.p2pEnabled,
-                        torrServe = store.torrServeUrl,
-                    )
+            try {
+                store.addons.collect { list ->
+                    _state.update {
+                        it.copy(
+                            addons = list,
+                            hasRealDebrid = secrets.has(SecretName.RealDebrid),
+                            hasTorBox = secrets.has(SecretName.TorBox),
+                            p2p = store.p2pEnabled,
+                            torrServe = store.torrServeUrl,
+                        )
+                    }
                 }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // A bad saved addon must not take the settings page down with it.
             }
         }
         refresh()
@@ -81,38 +87,44 @@ class StremioViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, message = null) }
-            val addons = store.enabled().filter { addon ->
-                "catalog" in addon.resources && addon.catalogs.isNotEmpty()
-            }
-            val rows = mutableListOf<CatalogRow>()
-            for (addon in addons) {
-                val catalogs = addon.catalogs
-                    .filter { it.type == "movie" || it.type == "series" }
-                    .filterNot { it.extra.singleOrNull() == "search" }
-                    .take(3)
-                for (catalog in catalogs) {
-                    val items = runCatching {
-                        StremioClient.catalog(addon, catalog.type, catalog.id).take(24)
-                    }.getOrDefault(emptyList())
-                    if (items.isNotEmpty()) {
-                        rows += CatalogRow(
-                            addonId = addon.id,
-                            addonName = addon.name,
-                            type = catalog.type,
-                            catalogId = catalog.id,
-                            name = catalog.name.ifBlank { addon.name },
-                            items = items,
-                        )
+            try {
+                _state.update { it.copy(loading = true, message = null) }
+                val addons = store.enabled().filter { addon ->
+                    "catalog" in addon.resources && addon.catalogs.isNotEmpty()
+                }
+                val rows = mutableListOf<CatalogRow>()
+                for (addon in addons) {
+                    val catalogs = addon.catalogs
+                        .filter { it.type == "movie" || it.type == "series" }
+                        .filterNot { it.extra.singleOrNull() == "search" }
+                        .take(3)
+                    for (catalog in catalogs) {
+                        val items = runCatching {
+                            StremioClient.catalog(addon, catalog.type, catalog.id).take(24)
+                        }.getOrDefault(emptyList())
+                        if (items.isNotEmpty()) {
+                            rows += CatalogRow(
+                                addonId = addon.id,
+                                addonName = addon.name,
+                                type = catalog.type,
+                                catalogId = catalog.id,
+                                name = catalog.name.ifBlank { addon.name },
+                                items = items,
+                            )
+                        }
                     }
                 }
-            }
-            _state.update {
-                it.copy(
-                    loading = false,
-                    rows = rows,
-                    message = if (rows.isEmpty() && addons.isNotEmpty()) "Those addons didn't return a catalog." else null,
-                )
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        rows = rows,
+                        message = if (rows.isEmpty() && addons.isNotEmpty()) "Those addons didn't return a catalog." else null,
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _state.update { it.copy(loading = false, message = error.message ?: "Addons didn't open") }
             }
         }
     }
@@ -273,7 +285,12 @@ class StremioViewModel @Inject constructor(
     fun setEnabled(id: String, enabled: Boolean) = store.setEnabled(id, enabled)
 
     fun saveSecret(name: SecretName, value: String) {
-        secrets.put(name, value)
+        try {
+            secrets.put(name, value)
+        } catch (error: Exception) {
+            _state.update { it.copy(message = error.message ?: "Couldn't save that key") }
+            return
+        }
         _state.update {
             it.copy(
                 hasRealDebrid = secrets.has(SecretName.RealDebrid),

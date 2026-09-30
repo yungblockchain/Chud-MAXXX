@@ -1,6 +1,7 @@
 package com.m3u.tv
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -55,7 +57,9 @@ fun DialSettingsPane(
     Column(Modifier.fillMaxSize()) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.padding(start = 48.dp, top = 32.dp, end = 48.dp)
+            modifier = Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(start = 48.dp, top = 32.dp, end = 48.dp, bottom = 8.dp)
         ) {
             tabs.forEachIndexed { index, item ->
                 TvActionButton(
@@ -76,9 +80,12 @@ fun DialSettingsPane(
         ) {
             Crossfade(
                 targetState = tab.coerceIn(0, (tabs.size - 1).coerceAtLeast(0)),
+                modifier = Modifier.fillMaxSize(),
                 label = "settings-tab",
             ) { index ->
-                tabs.getOrNull(index)?.content?.invoke()
+                Box(Modifier.fillMaxSize()) {
+                    tabs.getOrNull(index)?.content?.invoke()
+                }
             }
         }
     }

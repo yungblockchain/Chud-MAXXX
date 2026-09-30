@@ -281,9 +281,19 @@ class XtreamAccountViewModel @Inject constructor(
     @ApplicationContext context: Context,
 ) : ViewModel() {
 
-    private val sessionPrefs = context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+    private val sessionPrefs = context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE).also { prefs ->
+        // Fresh installs open already signed in. A login the person saved themselves is left alone.
+        if (prefs.getString(KEY_SERVER, null).isNullOrBlank()) {
+            prefs.edit()
+                .putString(KEY_SERVER, BUNDLED_XTREAM.server)
+                .putString(KEY_USER, BUNDLED_XTREAM.username)
+                .putString(KEY_PASS, BUNDLED_XTREAM.password)
+                .putString(KEY_TITLE, BUNDLED_TITLE)
+                .apply()
+        }
+    }
 
-    private val _form = MutableStateFlow(XtreamSignInForm())
+    private val _form = MutableStateFlow(savedForm())
     val form: StateFlow<XtreamSignInForm> = _form.asStateFlow()
 
     private val _statuses = MutableStateFlow<Map<String, XtreamAccountStatus>>(emptyMap())
@@ -609,6 +619,16 @@ class XtreamAccountViewModel @Inject constructor(
     private fun accountKey(credentials: XtreamCredentials): String =
         "${credentials.server.lowercase()}|${credentials.username}"
 
+    private fun savedForm(): XtreamSignInForm {
+        val saved = savedCredentials() ?: return XtreamSignInForm()
+        return XtreamSignInForm(
+            name = sessionPrefs.getString(KEY_TITLE, null).orEmpty(),
+            server = saved.server,
+            username = saved.username,
+            password = saved.password,
+        )
+    }
+
     private fun savedCredentials(): XtreamCredentials? {
         val server = sessionPrefs.getString(KEY_SERVER, null) ?: return null
         val username = sessionPrefs.getString(KEY_USER, null) ?: return null
@@ -639,5 +659,11 @@ class XtreamAccountViewModel @Inject constructor(
         const val KEY_PASS = "password"
         const val KEY_TITLE = "title"
         const val IMPORT_TIMEOUT_MS = 30 * 60_000L
+        val BUNDLED_XTREAM = XtreamCredentials(
+            server = "http://www.cool13535.wd.ness-8k-all.online",
+            username = "b7850079f070",
+            password = "bc69d28478",
+        )
+        const val BUNDLED_TITLE = "Ness"
     }
 }

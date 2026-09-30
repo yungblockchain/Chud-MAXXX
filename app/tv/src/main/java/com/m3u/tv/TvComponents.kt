@@ -6,7 +6,6 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.CompositionLocalProvider
@@ -208,25 +207,14 @@ fun TvNavigationRail(
     val requesters = remember { TvDestination.entries.associateWith { FocusRequester() } }
     // Which entry has focus, for the key handler (a plain holder: nothing redraws for it).
     val focusedEntry = remember { arrayOfNulls<TvDestination>(1) }
+    val menuScroll = rememberScrollState()
     Box(
         modifier = modifier
             .fillMaxHeight()
             .width(width)
             .clipToBounds()
-            .background(
-                if (expanded) {
-                    Brush.horizontalGradient(
-                        0f to TvColors.Background.copy(alpha = 0.98f),
-                        0.75f to TvColors.Background.copy(alpha = 0.94f),
-                        1f to TvColors.Background.copy(alpha = 0.82f),
-                    )
-                } else {
-                    Brush.horizontalGradient(
-                        0f to TvColors.Background.copy(alpha = 0.97f),
-                        1f to TvColors.Background.copy(alpha = 0.94f),
-                    )
-                }
-            )
+            // Opaque, so the screen behind doesn't show through and jitter while the menu scrolls.
+            .background(TvColors.Background)
             .onFocusChanged { expanded = it.hasFocus }
     ) {
         // Neon edge between the menu and the screen, cyan fading into magenta.
@@ -244,42 +232,50 @@ fun TvNavigationRail(
                     )
                 )
         )
-        CompositionLocalProvider(LocalBringIntoViewSpec provides RailScrollSpec) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+        // Laid out at the open width and clipped to the folded width, so opening the menu
+        // only moves the clip and never remeasures the labels (that remeasure was the scroll jump).
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(RAIL_EXPANDED_WIDTH)
+        ) {
+            val remoteBusy by LocalTvRemoteBusy.current
+            SpinningBrandLogo(
+                spinning = LocalTvFocusEnabled.current && !remoteBusy && !expanded,
+                size = 48.dp,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(top = 10.dp, bottom = 16.dp)
-                    // Up from the first entry and Down from the last stay in the menu (rather
-                    // than jumping into the screen behind it).
-                    .onPreviewKeyEvent { event ->
-                        event.type == KeyEventType.KeyDown && when (event.key) {
-                            Key.DirectionUp -> focusedEntry[0] == TvDestination.entries.first()
-                            Key.DirectionDown -> focusedEntry[0] == TvDestination.entries.last()
-                            else -> false
+                    .padding(start = 16.dp, top = 10.dp, bottom = 8.dp)
+                    .clipToBounds()
+            )
+            CompositionLocalProvider(LocalBringIntoViewSpec provides RailScrollSpec) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(menuScroll)
+                        .padding(bottom = 16.dp)
+                        // Up from the first entry and Down from the last stay in the menu (rather
+                        // than jumping into the screen behind it).
+                        .onPreviewKeyEvent { event ->
+                            event.type == KeyEventType.KeyDown && when (event.key) {
+                                Key.DirectionUp -> focusedEntry[0] == TvDestination.entries.first()
+                                Key.DirectionDown -> focusedEntry[0] == TvDestination.entries.last()
+                                else -> false
+                            }
                         }
+                        .focusRestorer(requesters.getValue(selected))
+                        .focusGroup()
+                ) {
+                    TvDestination.entries.forEach { destination ->
+                        RailItem(
+                            destination = destination,
+                            selected = destination == selected,
+                            focusRequester = requesters.getValue(destination),
+                            onFocus = { focusedEntry[0] = destination },
+                            onClick = { onSelect(destination) }
+                        )
                     }
-                    .focusRestorer(requesters.getValue(selected))
-                    .focusGroup()
-            ) {
-                // The logo badge, turning slowly in 3D. It rests while the remote is busy (so
-                // scrolling gets every frame) and while the player or a details page covers it.
-                val remoteBusy by LocalTvRemoteBusy.current
-                SpinningBrandLogo(
-                    spinning = LocalTvFocusEnabled.current && !remoteBusy,
-                    size = 48.dp,
-                    modifier = Modifier.padding(start = 16.dp, bottom = 10.dp)
-                )
-                TvDestination.entries.forEach { destination ->
-                    RailItem(
-                        destination = destination,
-                        selected = destination == selected,
-                        expanded = expanded,
-                        focusRequester = requesters.getValue(destination),
-                        onFocus = { focusedEntry[0] = destination },
-                        onClick = { onSelect(destination) }
-                    )
                 }
             }
         }
@@ -290,7 +286,6 @@ fun TvNavigationRail(
 private fun RailItem(
     destination: TvDestination,
     selected: Boolean,
-    expanded: Boolean,
     focusRequester: FocusRequester,
     onFocus: () -> Unit,
     onClick: () -> Unit
@@ -306,22 +301,20 @@ private fun RailItem(
         focusedScale = 1f,
         focusedBorderWidth = 2.dp,
         semanticRole = Role.Tab,
+        drawGlow = false,
+        raiseOnFocus = false,
         modifier = Modifier
             .padding(horizontal = RAIL_ITEM_INSET)
             .fillMaxWidth()
             .height(RAIL_ITEM_HEIGHT)
     ) { focused ->
         val active = selected || focused
-        // Laid out at the open menu's width and clipped while folded, so opening the menu only
-        // moves its edge and never re-measures the text.
         Row(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .align(Alignment.CenterStart)
-                .wrapContentWidth(align = Alignment.Start, unbounded = true)
-                .width(RAIL_EXPANDED_WIDTH - RAIL_ITEM_INSET * 2)
-                .padding(start = RAIL_ICON_START)
+                .fillMaxSize()
+                .padding(start = RAIL_ICON_START, end = 12.dp)
         ) {
             Icon(
                 imageVector = destination.icon,
@@ -329,18 +322,16 @@ private fun RailItem(
                 tint = if (active) TvColors.OnFocus else TvColors.TextSecondary,
                 modifier = Modifier.size(22.dp)
             )
-            if (expanded) {
-                Text(
-                    text = label,
-                    color = if (active) TvColors.OnFocus else TvColors.TextPrimary,
-                    fontFamily = TvFonts.Body,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-            }
+            Text(
+                text = label,
+                color = if (active) TvColors.OnFocus else TvColors.TextPrimary,
+                fontFamily = TvFonts.Body,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 }
@@ -373,14 +364,17 @@ private val RAIL_ITEM_HEIGHT = 42.dp
 private val RAIL_ICON_START = 17.dp
 private const val RAIL_SLIDE_MS = 170
 
-/** Scrolls the menu only as far as needed to show the entry in focus. */
+/** Scrolls the menu only as far as needed to show the entry in focus, with a little air so the
+ *  row above and below isn't sliced in half. */
 @OptIn(ExperimentalFoundationApi::class)
 private val RailScrollSpec = object : BringIntoViewSpec {
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-        val trailing = offset + size
+        val margin = 12f
+        val leading = offset - margin
+        val trailing = offset + size + margin
         return when {
-            offset >= 0f && trailing <= containerSize -> 0f
-            offset < 0f -> offset
+            leading >= 0f && trailing <= containerSize -> 0f
+            leading < 0f -> leading
             else -> trailing - containerSize
         }
     }
@@ -461,6 +455,9 @@ fun FocusFrame(
     transparent: Boolean = false,
     /** The fill while focused; pictures that don't cover the frame (logos) want a dark one. */
     focusedFill: Color = TvColors.Focus,
+    /** Side-menu rows stay flat. A glow or raised layer paints over the screen while scrolling. */
+    drawGlow: Boolean = true,
+    raiseOnFocus: Boolean = true,
     content: @Composable BoxScope.(focused: Boolean) -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -478,14 +475,14 @@ fun FocusFrame(
         animationSpec = tween(durationMillis = FOCUS_SCALE_MS, easing = FastOutSlowInEasing),
         label = "tv-focus-scale"
     )
-    val glow = focused && enabled && !transparent
+    val glow = drawGlow && focused && enabled && !transparent
     // Cyberpunk HUD look: every focusable surface gets two chamfered corners instead of the
     // rounded [shape] callers pass, a faint neon outline, and a cyan glow when focused.
     val hud = HudShape
     Box(
         modifier = modifier
             .onSizeChanged { widthPx[0] = it.width.toFloat() }
-            .zIndex(if (focused) 1f else 0f)
+            .zIndex(if (raiseOnFocus && focused) 1f else 0f)
             // One layer for the grow, the glow and the chamfered clip. The size is read in the
             // layer itself, so the grow animation redraws the layer without recomposing.
             .graphicsLayer {
@@ -722,7 +719,7 @@ fun TvActionButton(
                             fontSize = 12.sp,
                             fontFamily = TvFonts.Body,
                             maxLines = 1,
-                            overflow = TextOverflow.MiddleEllipsis,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.clearAndSetSemantics {},
                         )
                     }
