@@ -1,7 +1,9 @@
+> **Follow-up:** versionCode **205**. Match Centre shows ESPN decimal odds under each fixture, live stats and key events on the match page, a Watch live button that opens a channel whose title names both teams, and a paper bet slip. The slip does not send Solana or Ethereum. Cloudbet, SoftGamings, BetSolutions and ZenSports are not called.
+
 > **Follow-up, same day:** versionCode **204**. The Xtream account is built in, so a fresh install is already signed in. The side menu scrolls without jumping over the screen. Settings → Addons no longer uses the lazy list that crashed that page.
 
 > **This repository is Chud MAXXX**, a separate Fire TV app from earlier [CHUD STREAMS](https://github.com/yungblockchain/Chud-Streams).
-> On-screen name: **Chud MAXXX**. Application id: `app.dial.maxxx`. Version name: `MAXXX` (versionCode 204).
+> On-screen name: **Chud MAXXX**. Application id: `app.dial.maxxx`. Version name: `MAXXX` (versionCode 205).
 > It installs beside CHUD STREAMS (`app.dial.tv`) instead of replacing it. The extension permission is `app.dial.maxxx.permission.BIND_EXTENSION_HOST` for the same reason.
 > Earlier CHUD STREAMS is not changed by commits in this repo.
 > Build and install notes that still say CHUD STREAMS in [DIAL.md](DIAL.md) describe the shared Fire TV shell. Use the names in this block when they disagree.

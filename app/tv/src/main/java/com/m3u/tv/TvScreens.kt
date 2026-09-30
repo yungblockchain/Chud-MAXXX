@@ -188,6 +188,10 @@ fun TvBrowsePane(
     onAddSource: () -> Unit = {},
     onPlayResolved: () -> Unit = {},
     onManageAddons: () -> Unit = {},
+    /** Finds a channel for both team names and reports why it did not play. */
+    onWatchFixture: (home: String, away: String, report: (String) -> Unit) -> Unit = { _, _, report ->
+        report("No channel search is available.")
+    },
     /** An Xtream login is saved on this device, even if the library has not finished downloading. */
     signedIn: Boolean = false,
     /** Saved login, library not in the database yet. Do not show the sign-in form. */
@@ -275,7 +279,7 @@ fun TvBrowsePane(
                         onManageAddons = onManageAddons,
                     )
 
-                    TvDestination.MatchCentre -> MatchCentreScreen()
+                    TvDestination.MatchCentre -> MatchCentreScreen(onWatch = onWatchFixture)
 
                     TvDestination.Favorites -> favouritesContent()
 

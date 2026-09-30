@@ -309,6 +309,16 @@ class TvHomeViewModel @Inject constructor(
         }
     }
 
+    /** Channel title that names both teams, or null. The caller opens the player. */
+    fun watchFixture(home: String, away: String, onFound: (Channel?) -> Unit) {
+        viewModelScope.launch {
+            val channel = withContext(Dispatchers.IO) {
+                FixtureChannelFinder.find(channelRepository, home, away)
+            }
+            onFound(channel)
+        }
+    }
+
     fun playRecent() {
         state.value.recent?.let(::play)
     }
@@ -1064,4 +1074,109 @@ private fun List<DiscoveredSubscriptionProvider>.providerFor(
         provider.descriptor.variants.any { variant ->
             variant.kind == account.providerKind
         }
+}
+
+/**
+ * Picks a live channel whose title mentions both clubs. Short words that show up in
+ * dozens of channel names (city, united) only count inside a longer phrase.
+ */
+internal object FixtureChannelFinder {
+    private val stop = setOf(
+        "fc", "afc", "cf", "sc", "ac", "club", "the", "and", "de", "da", "do",
+        "fk", "bk", "sk", "if", "sv", "cd", "ud", "rc", "ss", "as", "us",
+    )
+    private val weak = setOf(
+        "city", "united", "town", "athletic", "hotspur", "wanderers", "rovers",
+        "albion", "sporting", "real", "football", "soccer", "calcio",
+    )
+    private val alias = mapOf(
+        "man city" to listOf("manchester city", "man city"),
+        "manchester city" to listOf("manchester city", "man city"),
+        "man utd" to listOf("manchester united", "man utd"),
+        "man united" to listOf("manchester united", "man utd"),
+        "manchester united" to listOf("manchester united", "man utd"),
+        "spurs" to listOf("tottenham", "spurs"),
+        "tottenham hotspur" to listOf("tottenham", "spurs"),
+        "wolves" to listOf("wolverhampton", "wolves"),
+        "wolverhampton wanderers" to listOf("wolverhampton", "wolves"),
+        "psg" to listOf("psg", "paris saint"),
+        "paris saint germain" to listOf("psg", "paris saint"),
+        "paris saint-germain" to listOf("psg", "paris saint"),
+        "inter milan" to listOf("inter"),
+        "internazionale" to listOf("inter"),
+        "ac milan" to listOf("milan"),
+        "atletico madrid" to listOf("atletico"),
+        "atlético madrid" to listOf("atletico"),
+        "athletic bilbao" to listOf("bilbao"),
+        "real madrid" to listOf("real madrid"),
+        "real sociedad" to listOf("real sociedad"),
+        "real betis" to listOf("betis"),
+        "borussia dortmund" to listOf("dortmund"),
+        "bayern munich" to listOf("bayern"),
+        "bayern munchen" to listOf("bayern"),
+        "nottingham forest" to listOf("nottingham"),
+        "west ham united" to listOf("west ham"),
+        "newcastle united" to listOf("newcastle"),
+        "brighton and hove albion" to listOf("brighton"),
+    )
+
+    suspend fun find(repository: ChannelRepository, home: String, away: String): Channel? {
+        val homeNeedles = needles(home)
+        val awayNeedles = needles(away)
+        val queries = (homeNeedles + awayNeedles).distinct().sortedByDescending { it.length }.take(8)
+        if (queries.isEmpty()) return null
+        val found = LinkedHashMap<Int, Channel>()
+        for (query in queries) {
+            runCatching { repository.searchUnhidden(query.take(24), 50) }
+                .getOrDefault(emptyList())
+                .forEach { found[it.id] = it }
+        }
+        return found.values
+            .map { channel -> channel to score(fold(channel.title), homeNeedles, awayNeedles) }
+            .filter { it.second >= 40 }
+            .maxWithOrNull(compareBy<Pair<Channel, Int>> { it.second }.thenBy { -it.first.title.length })
+            ?.first
+    }
+
+    private fun needles(name: String): List<String> {
+        val folded = fold(name)
+        val words = folded.split(' ').filter { it.length >= 3 && it !in stop }
+        val strong = words.filter { it.length >= 4 && it !in weak }
+        val usable = if (strong.isNotEmpty()) strong else words
+        val phrase = usable.joinToString(" ").takeIf { usable.size >= 2 && it.length >= 6 }
+        return (alias[folded].orEmpty() + listOfNotNull(phrase) + usable + listOf(folded))
+            .map { it.trim() }
+            .filter { it.length >= 3 }
+            .distinct()
+            .take(5)
+    }
+
+    private fun score(title: String, homeNeedles: List<String>, awayNeedles: List<String>): Int {
+        val homeHit = homeNeedles.any { containsToken(title, it) }
+        val awayHit = awayNeedles.any { containsToken(title, it) }
+        var points = 0
+        if (homeHit) points += 10
+        if (awayHit) points += 10
+        if (homeHit && awayHit) points += 30
+        if (title.contains(" vs ") || title.contains(" v ") || title.contains(" x ")) points += 4
+        return points
+    }
+
+    private fun containsToken(title: String, token: String): Boolean {
+        if (token.contains(' ')) return title.contains(token)
+        if (token.length >= 4) return title.contains(token)
+        return Regex("(^|[^a-z0-9])${Regex.escape(token)}([^a-z0-9]|$)").containsMatchIn(title)
+    }
+
+    private fun fold(name: String): String =
+        name.lowercase(Locale.US)
+            .replace('á', 'a').replace('à', 'a').replace('ä', 'a').replace('â', 'a')
+            .replace('é', 'e').replace('è', 'e').replace('ë', 'e').replace('ê', 'e')
+            .replace('í', 'i').replace('ï', 'i').replace('î', 'i')
+            .replace('ó', 'o').replace('ö', 'o').replace('ô', 'o')
+            .replace('ú', 'u').replace('ü', 'u').replace('û', 'u')
+            .replace('ñ', 'n').replace('ç', 'c').replace('ø', 'o').replace('å', 'a')
+            .replace(Regex("[^a-z0-9 ]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
 }

@@ -587,6 +587,19 @@ fun App(
                         settingsTab = SETTINGS_TAB_ADDONS
                         destination = TvDestination.Status
                     },
+                    onWatchFixture = { home, away, report ->
+                        viewModel.watchFixture(home, away) { channel ->
+                            if (channel == null) {
+                                report("No channel title matches both $home and $away.")
+                            } else if (dial.playsExternally(channel)) {
+                                dial.playLiveExternally(channel)
+                                report("Opening ${channel.title}")
+                            } else {
+                                viewModel.play(channel)
+                                surface = TvSurface.Player
+                            }
+                        }
+                    },
                     signedIn = state.playlists.isNotEmpty() || hasXtreamSession,
                     restoringLibrary = state.playlists.isEmpty() && hasXtreamSession,
                     settingsTab = settingsTab,

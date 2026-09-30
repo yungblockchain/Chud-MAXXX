@@ -13,8 +13,14 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.rounded.Paid
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SportsSoccer
+import androidx.compose.ui.platform.LocalContext
+import android.content.Context
+import java.util.Locale
+import kotlinx.serialization.json.JsonPrimitive
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,9 +50,12 @@ import kotlinx.serialization.json.contentOrNull
 
 /*
  * Match Centre. Live, upcoming and finished football from ESPN's public scoreboard
- * (no key). Lineups come from the same feed's summary call when a match is opened.
- * WhoScored, Sofascore, FBref and Understat do not offer a free keyless API, so this
- * screen does not pretend to call them.
+ * (no key). Opening a match loads the summary: lineups, key events and team stats.
+ * Moneyline prices on that same board are shown as decimal odds. They are information,
+ * not a book. Cloudbet, SoftGamings, BetSolutions and ZenSports need a private partner
+ * key, so they are not called. The bet control writes a paper slip on the device.
+ * It does not send Solana or Ethereum.
+ * WhoScored, Sofascore, FBref and Understat do not offer a free keyless API either.
  */
 
 private val MATCH_LEAGUES = listOf(
@@ -69,6 +78,28 @@ private enum class MatchFilter { Live, Upcoming, Results }
 private data class FixtureSide(val name: String, val score: String?)
 
 @Immutable
+private data class MatchOdds(
+    val home: String?,
+    val draw: String?,
+    val away: String?,
+    val total: String?,
+    val provider: String?,
+    val details: String?,
+) {
+    fun line(): String {
+        val bits = buildList {
+            home?.let { add("1 $it") }
+            draw?.let { add("X $it") }
+            away?.let { add("2 $it") }
+            total?.let { add("O/U $it") }
+        }
+        if (bits.isEmpty()) return details?.takeIf { it.isNotBlank() }.orEmpty()
+        val who = provider?.let { "  ·  $it" }.orEmpty()
+        return bits.joinToString("   ") + who
+    }
+}
+
+@Immutable
 private data class Fixture(
     val id: String,
     val leagueId: String,
@@ -79,10 +110,14 @@ private data class Fixture(
     val detail: String,
     val venue: String?,
     val start: String?,
+    val odds: MatchOdds?,
 )
 
 @Immutable
 private data class LineupPlayer(val name: String, val number: String?, val position: String?)
+
+@Immutable
+private data class MatchStat(val label: String, val home: String, val away: String)
 
 @Immutable
 private data class MatchDetail(
@@ -90,10 +125,17 @@ private data class MatchDetail(
     val homeXi: List<LineupPlayer>,
     val awayXi: List<LineupPlayer>,
     val note: String?,
+    val stats: List<MatchStat>,
+    val events: List<String>,
+    val odds: MatchOdds?,
 )
 
 @Composable
-fun MatchCentreScreen() {
+fun MatchCentreScreen(
+    onWatch: (home: String, away: String, report: (String) -> Unit) -> Unit = { _, _, report ->
+        report("No channel search is available.")
+    },
+) {
     var leagueIndex by remember { mutableIntStateOf(0) }
     var filter by remember { mutableStateOf(MatchFilter.Live) }
     var fixtures by remember { mutableStateOf<List<Fixture>>(emptyList()) }
@@ -103,6 +145,8 @@ fun MatchCentreScreen() {
     var detail by remember { mutableStateOf<MatchDetail?>(null) }
     var detailLoading by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
+    var watchNote by remember { mutableStateOf<String?>(null) }
+    val slips = rememberPaperSlips()
 
     LaunchedEffect(reload) {
         loading = true
@@ -113,6 +157,7 @@ fun MatchCentreScreen() {
     }
 
     LaunchedEffect(selected?.id) {
+        watchNote = null
         val fixture = selected ?: run {
             detail = null
             return@LaunchedEffect
@@ -138,7 +183,19 @@ fun MatchCentreScreen() {
             fixture = selected!!,
             detail = detail,
             loading = detailLoading,
+            note = watchNote,
+            slips = slips.lines,
             onBack = { selected = null },
+            onWatch = {
+                watchNote = "Looking through your channels…"
+                onWatch(selected!!.home.name, selected!!.away.name) { message -> watchNote = message }
+            },
+            onSlip = { selection, price ->
+                val teams = "${selected!!.home.name} vs ${selected!!.away.name}"
+                val priceBit = price?.let { " @ $it" }.orEmpty()
+                slips.add("$teams  ·  $selection$priceBit")
+                watchNote = "Paper slip saved on this device. No Solana or Ethereum was sent."
+            },
         )
         return
     }
@@ -166,7 +223,7 @@ fun MatchCentreScreen() {
         }
         item {
             Text(
-                text = "Live scores, fixtures and lineups. Source: ESPN public scoreboard.",
+                text = "Scores, lineups and decimal odds from the public ESPN board. A bet here is a paper slip on this device. No crypto is sent.",
                 color = TvColors.TextSecondary,
                 fontFamily = TvFonts.Body,
                 fontSize = 15.sp,
@@ -235,6 +292,17 @@ fun MatchCentreScreen() {
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
+                        val prices = fixture.odds?.line().orEmpty()
+                        if (prices.isNotBlank()) {
+                            Text(
+                                text = prices,
+                                color = if (focused) TvColors.OnFocus else TvColors.Focus,
+                                fontFamily = TvFonts.Body,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
@@ -247,8 +315,13 @@ private fun MatchDetailPage(
     fixture: Fixture,
     detail: MatchDetail?,
     loading: Boolean,
+    note: String?,
+    slips: List<String>,
     onBack: () -> Unit,
+    onWatch: () -> Unit,
+    onSlip: (selection: String, price: String?) -> Unit,
 ) {
+    val odds = detail?.odds ?: fixture.odds
     LazyColumn(
         contentPadding = PaddingValues(start = 36.dp, end = 48.dp, top = 28.dp, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -277,14 +350,107 @@ private fun MatchDetailPage(
                 fontSize = 16.sp,
             )
         }
+        item {
+            val prices = odds?.line().orEmpty()
+            Text(
+                text = if (prices.isBlank()) "No odds posted for this fixture." else prices,
+                color = TvColors.Focus,
+                fontFamily = TvFonts.Body,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+            )
+        }
+        item {
+            TvActionButton(
+                text = "Watch live",
+                icon = Icons.Rounded.PlayArrow,
+                supportingText = "Find both teams in your channels",
+                onClick = onWatch,
+            )
+        }
+        note?.let { message -> item { Status(message) } }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Paper slip. Cloudbet, SoftGamings, BetSolutions and ZenSports are not connected. No Solana or Ethereum leaves this device.",
+                    color = TvColors.TextSecondary,
+                    fontFamily = TvFonts.Body,
+                    fontSize = 14.sp,
+                    modifier = Modifier.widthIn(max = 860.dp),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TvActionButton(
+                        text = odds?.home?.let { "Home $it" } ?: "Home",
+                        icon = Icons.Rounded.Paid,
+                        onClick = { onSlip(fixture.home.name, odds?.home) },
+                    )
+                    TvActionButton(
+                        text = odds?.draw?.let { "Draw $it" } ?: "Draw",
+                        icon = Icons.Rounded.Paid,
+                        onClick = { onSlip("Draw", odds?.draw) },
+                    )
+                    TvActionButton(
+                        text = odds?.away?.let { "Away $it" } ?: "Away",
+                        icon = Icons.Rounded.Paid,
+                        onClick = { onSlip(fixture.away.name, odds?.away) },
+                    )
+                }
+            }
+        }
+        if (slips.isNotEmpty()) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Saved slips",
+                        color = TvColors.TextPrimary,
+                        fontFamily = TvFonts.Body,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                    )
+                    slips.take(6).forEach { line -> Status(line) }
+                }
+            }
+        }
         detail?.headline?.let { headline -> item { Status(headline) } }
         if (loading) {
-            item { Status("Loading lineups…") }
-        } else if (detail == null || (detail.homeXi.isEmpty() && detail.awayXi.isEmpty())) {
-            item { Status(detail?.note ?: "Lineups are not published for this match yet.") }
+            item { Status("Loading stats and lineups…") }
         } else {
-            item { LineupBlock(fixture.home.name, detail.homeXi) }
-            item { LineupBlock(fixture.away.name, detail.awayXi) }
+            if (detail?.events?.isNotEmpty() == true) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Live stats",
+                            color = TvColors.TextPrimary,
+                            fontFamily = TvFonts.Body,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                        )
+                        detail.events.forEach { event -> Status(event) }
+                    }
+                }
+            }
+            if (detail?.stats?.isNotEmpty() == true) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "${fixture.home.name}   /   ${fixture.away.name}",
+                            color = TvColors.TextPrimary,
+                            fontFamily = TvFonts.Body,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                        )
+                        detail.stats.forEach { stat ->
+                            Status("${stat.label}    ${stat.home}  –  ${stat.away}")
+                        }
+                    }
+                }
+            }
+            if (detail == null || (detail.homeXi.isEmpty() && detail.awayXi.isEmpty())) {
+                item { Status(detail?.note ?: "Lineups are not published for this match yet.") }
+            } else {
+                item { LineupBlock(fixture.home.name, detail.homeXi) }
+                item { LineupBlock(fixture.away.name, detail.awayXi) }
+            }
         }
     }
 }
@@ -320,6 +486,31 @@ private fun Status(text: String) {
         fontSize = 16.sp,
         modifier = Modifier.widthIn(max = 860.dp),
     )
+}
+
+private class PaperSlips(
+    val lines: List<String>,
+    val add: (String) -> Unit,
+)
+
+@Composable
+private fun rememberPaperSlips(): PaperSlips {
+    val context = LocalContext.current
+    val prefs = remember {
+        context.applicationContext.getSharedPreferences("chud_match_slips", Context.MODE_PRIVATE)
+    }
+    var lines by remember {
+        mutableStateOf(
+            prefs.getString("lines", "").orEmpty().lineSequence().filter { it.isNotBlank() }.toList(),
+        )
+    }
+    val add: (String) -> Unit = { line ->
+        val current = prefs.getString("lines", "").orEmpty().lineSequence().filter { it.isNotBlank() }.toList()
+        val next = (listOf(line) + current).distinct().take(8)
+        prefs.edit().putString("lines", next.joinToString("\n")).apply()
+        lines = next
+    }
+    return PaperSlips(lines, add)
 }
 
 private object MatchFeed {
@@ -361,11 +552,13 @@ private object MatchFeed {
             }
         }
         MatchDetail(
-            headline = root["header"]?.asObject()?.get("competitions")?.asArray()
-                ?.firstOrNull()?.asObject()?.get("status")?.asObject()?.get("type")?.asObject()?.text("detail"),
+            headline = header?.get("status")?.asObject()?.get("type")?.asObject()?.text("detail"),
             homeXi = xi("home"),
             awayXi = xi("away"),
             note = note,
+            stats = readStats(root),
+            events = readEvents(root),
+            odds = header?.let(::readOdds) ?: fixture.odds,
         )
     }
 
@@ -396,6 +589,7 @@ private object MatchFeed {
                     detail = type?.text("shortDetail") ?: type?.text("detail") ?: "",
                     venue = competition["venue"]?.asObject()?.text("fullName"),
                     start = event.text("date"),
+                    odds = readOdds(competition),
                 )
             }
         }
@@ -419,8 +613,95 @@ private object MatchFeed {
     }
 }
 
+private fun readOdds(competition: JsonObject): MatchOdds? {
+    val odds = competition["odds"]?.asArray()?.firstOrNull()?.asObject()
+        ?: competition["pickcenter"]?.asArray()?.firstOrNull()?.asObject()
+        ?: return null
+    val moneyline = odds["moneyline"]?.asObject()
+    val parsed = MatchOdds(
+        home = teamMoney(odds["homeTeamOdds"]?.asObject()) ?: closeOdds(moneyline?.get("home")?.asObject()),
+        draw = teamMoney(odds["drawOdds"]?.asObject()) ?: closeOdds(moneyline?.get("draw")?.asObject()),
+        away = teamMoney(odds["awayTeamOdds"]?.asObject()) ?: closeOdds(moneyline?.get("away")?.asObject()),
+        total = odds.text("overUnder"),
+        provider = odds["provider"]?.asObject()?.text("name") ?: "ESPN",
+        details = odds.text("details"),
+    )
+    return parsed.takeIf { it.line().isNotBlank() }
+}
+
+private fun closeOdds(side: JsonObject?): String? {
+    if (side == null) return null
+    val close = side["close"]?.asObject()
+    val open = side["open"]?.asObject()
+    return americanToDecimal(close?.text("odds") ?: open?.text("odds") ?: side.text("odds"))
+}
+
+private fun teamMoney(node: JsonObject?): String? {
+    if (node == null) return null
+    return moneyDecimal(node["moneyLine"] ?: node["moneyline"])
+}
+
+private fun moneyDecimal(element: kotlinx.serialization.json.JsonElement?): String? {
+    val raw = when (element) {
+        null -> return null
+        is JsonPrimitive -> element.contentOrNull
+        is JsonObject -> element.text("decimal")
+            ?: element.text("odds")
+            ?: element["close"]?.asObject()?.text("odds")
+            ?: element["open"]?.asObject()?.text("odds")
+        else -> return null
+    }
+    return americanToDecimal(raw)
+}
+
+private fun americanToDecimal(raw: String?): String? {
+    if (raw.isNullOrBlank()) return null
+    val n = raw.trim().removePrefix("+").toDoubleOrNull() ?: return null
+    val dec = when {
+        kotlin.math.abs(n) >= 100.0 -> if (n > 0) n / 100.0 + 1.0 else 100.0 / kotlin.math.abs(n) + 1.0
+        n in 1.01..40.0 -> n
+        else -> return null
+    }
+    return String.format(Locale.US, "%.2f", dec)
+}
+
+private fun readEvents(root: JsonObject): List<String> {
+    val source = root["keyEvents"]?.asArray() ?: root["plays"]?.asArray() ?: return emptyList()
+    return source.mapNotNull { element ->
+        val item = element.asObject() ?: return@mapNotNull null
+        val minute = item["clock"]?.asObject()?.text("displayValue")
+        val type = item["type"]?.asObject()?.text("text")
+        val who = item["athletesInvolved"]?.asArray()?.firstOrNull()?.asObject()?.text("displayName")
+        val text = item.text("text") ?: item.text("shortText") ?: type ?: return@mapNotNull null
+        listOfNotNull(minute, who?.takeIf { !text.contains(it, ignoreCase = true) }, text)
+            .joinToString("  ")
+            .takeIf { it.isNotBlank() }
+    }.take(16)
+}
+
+private fun readStats(root: JsonObject): List<MatchStat> {
+    val teams = root["boxscore"]?.asObject()?.get("teams")?.asArray().orEmpty().mapNotNull { it.asObject() }
+    if (teams.size < 2) return emptyList()
+    fun side(name: String): JsonObject? = teams.firstOrNull { it.text("homeAway") == name }
+        ?: if (name == "home") teams.firstOrNull() else teams.getOrNull(1)
+    val home = side("home") ?: return emptyList()
+    val away = side("away") ?: return emptyList()
+    val awayMap = away["statistics"]?.asArray().orEmpty().mapNotNull { it.asObject() }.associateBy {
+        it.text("name") ?: it.text("abbreviation") ?: it.text("label") ?: ""
+    }
+    return home["statistics"]?.asArray().orEmpty().mapNotNull { element ->
+        val stat = element.asObject() ?: return@mapNotNull null
+        val key = stat.text("name") ?: stat.text("label") ?: return@mapNotNull null
+        val label = stat.text("label") ?: stat.text("displayName") ?: key
+        val homeValue = stat.text("displayValue") ?: return@mapNotNull null
+        val other = awayMap[key] ?: awayMap[stat.text("abbreviation").orEmpty()]
+        val awayValue = other?.text("displayValue") ?: "–"
+        MatchStat(label, homeValue, awayValue)
+    }.take(8)
+}
+
 private fun kotlinx.serialization.json.JsonElement.asObject(): JsonObject? = this as? JsonObject
 private fun kotlinx.serialization.json.JsonElement.asArray(): JsonArray? = this as? JsonArray
 private fun kotlinx.serialization.json.JsonElement.textValue(): String? =
-    (this as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
+    (this as? JsonPrimitive)?.contentOrNull
 private fun JsonObject.text(name: String): String? = this[name]?.textValue()?.takeIf { it.isNotBlank() && it != "null" }
