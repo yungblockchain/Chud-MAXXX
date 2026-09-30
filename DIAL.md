@@ -153,6 +153,8 @@ from the zip.
 
 ## Addons, debrid and P2P
 
+The full patch notes for this work, written so another model can change it without guessing, are in [README.md](README.md) under "Patch notes (2026-09-30)" and "If you are another LLM". Read that before editing `app/tv/src/main/java/com/m3u/tv/stremio/`. The short version is below.
+
 The **Addons** tab speaks the Stremio addon protocol (the same one Nuvio uses).
 
 - **Metadata.** One press installs Cinemeta. The Movie Database addon is there too. Any other manifest URL can be pasted.
