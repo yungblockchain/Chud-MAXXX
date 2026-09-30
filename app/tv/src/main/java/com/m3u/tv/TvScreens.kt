@@ -133,6 +133,7 @@ import com.m3u.extension.api.ExtensionSettingType
 import com.m3u.extension.api.ExtensionState
 import com.m3u.i18n.R.string
 import com.m3u.i18n.R.plurals
+import com.m3u.tv.stremio.StremioAddonsSettings
 import com.m3u.tv.stremio.StremioScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
