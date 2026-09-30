@@ -370,6 +370,6 @@ internal object TelegramBot {
             append("Address: ").append(pair.baseAddress).append('\n')
         }
         links.forEach { (label, url) -> append(label).append(": ").append(url).append('\n') }
-        append("Sent from CHUD STREAMS")
+        append("Sent from Chud MAXXX")
     }
 }

@@ -108,7 +108,7 @@ internal object StremioHttp {
             readTimeout = 25_000
             instanceFollowRedirects = true
             setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "ChudStreams/1.1 (Android TV; Stremio)")
+            setRequestProperty("User-Agent", "ChudMAXXX/1.0 (Android TV; Stremio)")
             headers.forEach { (name, value) -> setRequestProperty(name, value) }
             if (body != null) {
                 doOutput = true

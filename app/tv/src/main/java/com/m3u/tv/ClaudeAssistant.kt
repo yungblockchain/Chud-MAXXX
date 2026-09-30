@@ -458,7 +458,7 @@ class ClaudeViewModel @Inject constructor(
         val now = DateFormat.getDateTimeInstance(DateFormat.FULL, DateFormat.SHORT, Locale.getDefault())
             .format(Date())
         return """
-            You are the assistant inside CHUD STREAMS, an IPTV app on the viewer's Fire TV. It is $now.
+            You are the assistant inside Chud MAXXX, an IPTV app on the viewer's Fire TV. It is $now.
             Help them find something to watch in their own library: live TV channels, films and series from their IPTV provider.
             Use the tools to check what's actually in the library and on air before you suggest anything, and use titles exactly as the tools return them.
             Film and series categories come from the provider, and titles often carry a year or tags; you can use your own knowledge of films and shows to pick good ones from what's there.

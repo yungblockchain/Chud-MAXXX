@@ -3,9 +3,9 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <permission
-        android:name="com.m3u.permission.BIND_EXTENSION_HOST"
+        android:name="app.dial.maxxx.permission.BIND_EXTENSION_HOST"
         android:protectionLevel="signature" />
-    <uses-permission android:name="com.m3u.permission.BIND_EXTENSION_HOST" />
+    <uses-permission android:name="app.dial.maxxx.permission.BIND_EXTENSION_HOST" />
 
     <queries>
         <intent>

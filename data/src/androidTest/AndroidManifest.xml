@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <permission
-        android:name="com.m3u.permission.BIND_EXTENSION_HOST"
+        android:name="app.dial.maxxx.permission.BIND_EXTENSION_HOST"
         android:protectionLevel="signature" />
-    <uses-permission android:name="com.m3u.permission.BIND_EXTENSION_HOST" />
+    <uses-permission android:name="app.dial.maxxx.permission.BIND_EXTENSION_HOST" />
 
     <queries>
         <intent>

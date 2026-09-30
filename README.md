@@ -1,9 +1,11 @@
-> **CHUD STREAMS** is a Fire TV / Firestick build of [M3UAndroid](https://github.com/oxyroid/M3UAndroid).
-> Application id `app.dial.tv`. On-screen name is CHUD STREAMS. "Dial" is only the working name in code.
-> Build, install, signing, and the older Xtream / guide / player notes live in [DIAL.md](DIAL.md).
-> This README is the patch log. If you are another model changing this repo, read it before editing `app/tv`.
+> **This repository is Chud MAXXX**, a separate Fire TV app from earlier [CHUD STREAMS](https://github.com/yungblockchain/Chud-Streams).
+> On-screen name: **Chud MAXXX**. Application id: `app.dial.maxxx`. Version name: `MAXXX` (versionCode 200).
+> It installs beside CHUD STREAMS (`app.dial.tv`) instead of replacing it. The extension permission is `app.dial.maxxx.permission.BIND_EXTENSION_HOST` for the same reason.
+> Earlier CHUD STREAMS is not changed by commits in this repo.
+> Build and install notes that still say CHUD STREAMS in [DIAL.md](DIAL.md) describe the shared Fire TV shell. Use the names in this block when they disagree.
+> If you are another model, the addon, debrid, and P2P patch notes below still apply. Do not merge this tree back onto `yungblockchain/Chud-Streams` unless asked.
 
-# CHUD STREAMS
+# Chud MAXXX
 
 Fire TV IPTV player (Xtream Codes and M3U) plus a Stremio-style addon browser: catalogs, metadata, debrid, and torrent playback.
 
@@ -409,7 +411,7 @@ Unchanged from [DIAL.md](DIAL.md). Short version:
 
 - Android Studio: open this folder, module `app.tv`, SDK 37, build the APK.
 - GitHub Actions: workflow "Build CHUD STREAMS for Fire TV".
-- Install on a Fire TV Stick 4K Max with Developer Options and ADB, or with Downloader pointed at the release asset `chud-streams.apk` when a release exists.
+- Install on a Fire TV Stick 4K Max with Developer Options and ADB, or with Downloader pointed at `https://github.com/yungblockchain/Chud-MAXXX/releases/latest/download/chud-maxxx.apk` after the Fire TV workflow has published a build. That APK does not replace earlier CHUD STREAMS.
 - Stable signing matters. A new key means uninstalling and losing accounts. See DIAL.md.
 
 The addon code uses only APIs already on the TV app (Hilt, coroutines, serialization, Room, Media3 via `PlayerManager`). It does not add a native `.so`.

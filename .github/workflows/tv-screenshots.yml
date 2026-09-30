@@ -14,7 +14,7 @@ on:
         default: ""
   # Check every new APK automatically once the Fire TV build has published it.
   workflow_run:
-    workflows: [ "Build CHUD STREAMS for Fire TV" ]
+    workflows: [ "Build Chud MAXXX for Fire TV" ]
     types: [ completed ]
     # Only builds that published a release (main); branch builds are tested by hand with apk_run_id.
     branches: [ "main", "master" ]
@@ -56,13 +56,13 @@ jobs:
           RUN_ID: ${{ github.event.inputs.apk_run_id }}
         run: |
           if [ -n "$RUN_ID" ]; then
-            gh run download "$RUN_ID" --repo "${{ github.repository }}" -n chud-streams-apk -D apk-download
-            cp "$(ls apk-download/*.apk | head -n 1)" chud-streams.apk
+            gh run download "$RUN_ID" --repo "${{ github.repository }}" -n chud-maxxx-apk -D apk-download
+            cp "$(ls apk-download/*.apk | head -n 1)" chud-maxxx.apk
             echo "::notice::Testing the APK from build run $RUN_ID."
           else
-            curl -sSfL -o chud-streams.apk "https://github.com/${{ github.repository }}/releases/latest/download/chud-streams.apk"
+            curl -sSfL -o chud-maxxx.apk "https://github.com/${{ github.repository }}/releases/latest/download/chud-maxxx.apk"
           fi
-          ls -la chud-streams.apk
+          ls -la chud-maxxx.apk
 
       # A local test Xtream server (testing/mock-server) with a few channels, films, series and
       # guide listings, so the screenshots can show a signed-in app. The emulator reaches it at

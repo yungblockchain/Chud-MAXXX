@@ -43,7 +43,8 @@ class TvRepositoryImpl @Inject constructor(
             val mode = context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
             return mode == Configuration.UI_MODE_TYPE_TELEVISION ||
                 context.packageName == "com.m3u.tv" ||
-                context.packageName == "app.dial.tv" // Dial fork
+                context.packageName == "app.dial.tv" || // earlier CHUD STREAMS
+                context.packageName == "app.dial.maxxx" // Chud MAXXX
         }
 
     private val _broadcastCodeOnTv = MutableStateFlow<Int?>(null)

@@ -1,7 +1,7 @@
-# Builds the CHUD STREAMS APK for Fire TV (Fire TV Stick 4K Max and other Fire OS 7/8 devices).
-#
-# Run it from the Actions tab ("Build CHUD STREAMS for Fire TV" > Run workflow) or push to main/master.
-# The APK appears under the run's "Artifacts" as chud-streams-apk.
+# Builds the Chud MAXXX APK for Fire TV (Fire TV Stick 4K Max and other Fire OS 7/8 devices).
+# Separate from earlier CHUD STREAMS: application id app.dial.maxxx.
+# Run it from the Actions tab ("Build Chud MAXXX for Fire TV" > Run workflow) or push to main/master.
+# The APK appears under the run's "Artifacts" as chud-maxxx-apk.
 #
 # Optional but recommended: stable signing, so each new APK installs over the last one
 # without losing your accounts and favourites. Add these repository secrets
@@ -12,7 +12,7 @@
 #   DIAL_KEY_PASSWORD
 # DIAL.md shows the two commands that create them.
 
-name: Build CHUD STREAMS for Fire TV
+name: Build Chud MAXXX for Fire TV
 
 on:
   workflow_dispatch:
@@ -30,7 +30,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: chud-streams-${{ github.ref }}
+  group: chud-maxxx-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -63,9 +63,9 @@ jobs:
           if [ -n "$DIAL_KEYSTORE_BASE64" ]; then
             echo "$DIAL_KEYSTORE_BASE64" | base64 -d > dial-release.jks
             echo "DIAL_KEYSTORE_FILE=dial-release.jks" >> "$GITHUB_ENV"
-            echo "Signing with the CHUD STREAMS release key."
+            echo "Signing with the Chud MAXXX release key."
           else
-            echo "::warning::No DIAL_KEYSTORE_BASE64 secret. This APK uses a one-off debug key, so to update CHUD STREAMS on the Fire TV you'll need to uninstall the old version first."
+            echo "::warning::No DIAL_KEYSTORE_BASE64 secret. This APK uses a one-off debug key. Chud MAXXX still installs next to CHUD STREAMS because the application id is app.dial.maxxx, but a later MAXXX update will not install over this one until you add a fixed key."
           fi
 
       # Parser and test-server unit tests (quick, and they guard catalogue decoding).
@@ -140,30 +140,30 @@ jobs:
           if [ -z "$apk" ]; then
             apk=$(ls app/tv/build/outputs/apk/release/*.apk | head -n 1)
           fi
-          cp "$apk" "dist/chud-streams-${{ github.run_number }}.apk"
+          cp "$apk" "dist/chud-maxxx-${{ github.run_number }}.apk"
           ls -la dist
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: chud-streams-apk
+          name: chud-maxxx-apk
           path: dist/*.apk
           if-no-files-found: error
           retention-days: 30
 
       # Every successful build on main is also published as a release, so the newest APK is
       # always at the same address, which can be typed straight into Downloader on the Fire TV:
-      #   https://github.com/<owner>/<repo>/releases/latest/download/chud-streams.apk
+      #   https://github.com/<owner>/<repo>/releases/latest/download/chud-maxxx.apk
       - name: Publish the APK for Downloader
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp dist/*.apk chud-streams.apk
-          gh release create "build-${{ github.run_number }}" chud-streams.apk \
+          cp dist/*.apk chud-maxxx.apk
+          gh release create "build-${{ github.run_number }}" chud-maxxx.apk \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
-            --title "CHUD STREAMS build ${{ github.run_number }}" \
-            --notes "Fire TV APK. In Downloader, enter: https://github.com/${{ github.repository }}/releases/latest/download/chud-streams.apk" \
+            --title "Chud MAXXX build ${{ github.run_number }}" \
+            --notes "Fire TV APK for Chud MAXXX (app.dial.maxxx). It installs next to earlier CHUD STREAMS. In Downloader, enter: https://github.com/${{ github.repository }}/releases/latest/download/chud-maxxx.apk" \
             --latest
-          echo "::notice::Download link for Downloader: https://github.com/${{ github.repository }}/releases/latest/download/chud-streams.apk"
+          echo "::notice::Download link for Downloader: https://github.com/${{ github.repository }}/releases/latest/download/chud-maxxx.apk"

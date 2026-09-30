@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Overrides the upstream i18n value ("M3U TV") for the TV build only. -->
-    <string name="tv_home_title" translatable="false">CHUD STREAMS</string>
+    <string name="tv_home_title" translatable="false">Chud MAXXX</string>
 
     <string name="dial_nav_account">Account</string>
     <string name="dial_brand_katakana" translatable="false">チャッド・ストリームズ</string>
 
     <!-- Sign in -->
     <string name="dial_signin_title">Sign in with your Xtream account</string>
-    <string name="dial_signin_body">Your provider gave you a server address, a username and a password. Enter them here, or paste the whole M3U link into the server field and CHUD STREAMS will read the rest from it.</string>
+    <string name="dial_signin_body">Your provider gave you a server address, a username and a password. Enter them here, or paste the whole M3U link into the server field and Chud MAXXX will read the rest from it.</string>
     <string name="dial_signin_keyboard_hint">Press the centre button on a field to open the keyboard.</string>
     <string name="dial_field_server">Server</string>
     <string name="dial_field_server_placeholder">http://example.com:8080</string>
@@ -216,7 +216,7 @@
     <string name="dial_error_import_timeout">Signed in, but the server took too long to send its channel list. Try again, ideally when it\'s less busy.</string>
     <string name="dial_error_import_network">Signed in, but the connection dropped while loading channels. Check the Fire TV\'s internet and try again.</string>
     <string name="dial_error_import_storage">Signed in, but the Fire TV is out of storage space for the channel list. Free some space and try again.</string>
-    <string name="dial_error_import_too_large">Signed in, but this account has more than a million channels, films and series, which is more than CHUD STREAMS can hold.</string>
+    <string name="dial_error_import_too_large">Signed in, but this account has more than a million channels, films and series, which is more than Chud MAXXX can hold.</string>
     <!-- M3U playlists -->
     <string name="dial_signin_mode_xtream">Xtream login</string>
     <string name="dial_signin_mode_m3u">M3U link</string>
@@ -280,7 +280,7 @@
     <!-- Streams that drop, and closing the app -->
     <string name="dial_player_reconnecting">Reconnecting…</string>
     <string name="dial_player_stopped">Stream stopped. Press OK to try again.</string>
-    <string name="dial_exit_hint">Press Back again to close CHUD STREAMS</string>
+    <string name="dial_exit_hint">Press Back again to close Chud MAXXX</string>
     <string name="dial_setting_back_twice_to_exit">Press Back twice to close the app</string>
     <string name="dial_settings_section_phone_remote">Phone remote</string>
     <string name="dial_setting_pairing_code">Pairing code</string>

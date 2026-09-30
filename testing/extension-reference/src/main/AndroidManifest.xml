@@ -6,7 +6,7 @@
         <service
             android:name=".ReferenceExtensionService"
             android:exported="true"
-            android:permission="com.m3u.permission.BIND_EXTENSION_HOST">
+            android:permission="app.dial.maxxx.permission.BIND_EXTENSION_HOST">
             <intent-filter>
                 <action android:name="com.m3u.extension.action.BIND_EXTENSION" />
             </intent-filter>

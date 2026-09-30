@@ -46,7 +46,7 @@ androidComponents {
     onVariants { v ->
         v.instrumentationRunnerArguments.put(
             "targetAppId",
-            "app.dial.tv"
+            "app.dial.maxxx"
         )
     }
 }

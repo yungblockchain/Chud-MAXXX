@@ -1,3 +1,9 @@
+# Chud MAXXX
+
+Chud MAXXX is this repository's Fire TV build. It is published separately from earlier CHUD STREAMS (`yungblockchain/Chud-Streams`, application id `app.dial.tv`). This app's id is `app.dial.maxxx`, so the two install side by side. The notes below were written for the CHUD STREAMS shell and still describe how the player, guide, and addons work. Where they say `app.dial.tv` or "CHUD STREAMS", this repo means `app.dial.maxxx` and "Chud MAXXX".
+
+The original product note follows.
+
 # CHUD STREAMS
 
 CHUD STREAMS is a Fire TV build of [M3UAndroid](https://github.com/oxyroid/M3UAndroid) (oxyroid),
@@ -222,13 +228,13 @@ safe, since losing it means uninstalling to update.
 3. Get the APK across. Every successful build publishes the newest APK at a fixed address, so
    the simplest way is to open **Downloader** on the Fire TV and enter:
 
-   `https://github.com/yungblockchain/Chud-Streams/releases/latest/download/chud-streams.apk`
+   `https://github.com/yungblockchain/Chud-MAXXX/releases/latest/download/chud-maxxx.apk`
 
    then choose **Install**. (If you fork or rename the repository, swap in its name.) With a
    computer and adb instead: find the stick's IP under Settings > My Fire TV > About > Network,
-   run `adb connect IP:5555` and `adb install -r chud-streams.apk`, and accept the prompt on the
+   run `adb connect IP:5555` and `adb install -r chud-maxxx.apk`, and accept the prompt on the
    TV the first time.
-4. Open CHUD STREAMS from Your Apps & Channels. The logo spins, then the sign-in screen opens.
+4. Open Chud MAXXX from Your Apps & Channels. The logo spins, then the sign-in screen opens.
 
 ## Troubleshooting
 

@@ -31,12 +31,13 @@ android {
     namespace = "com.m3u.tv"
     compileSdk = 37
     defaultConfig {
-        // Own application id so Dial installs next to (not over) upstream M3U.
-        applicationId = "app.dial.tv"
+        // Own application id so Chud MAXXX installs next to earlier CHUD STREAMS
+        // (app.dial.tv) and upstream M3U, instead of replacing them.
+        applicationId = "app.dial.maxxx"
         minSdk = 26
         targetSdk = 33
-        versionCode = 100
-        versionName = "1.0.0"
+        versionCode = 200
+        versionName = "MAXXX"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["m3uMockServerUrl"] = m3uMockServerUrl.get()

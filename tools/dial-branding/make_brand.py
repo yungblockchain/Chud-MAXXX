@@ -114,8 +114,8 @@ def banner(w=320, h=180):
         return f, d.textbbox((0, 0), text, font=f)
 
     top_f, top_bb = fit("CHUD", DISPLAY_FONT, H * 0.30)
-    mid_f, mid_bb = fit("STREAMS", DISPLAY_FONT, H * 0.19)
-    kata = "チャッド・ストリームズ"
+    mid_f, mid_bb = fit("MAXXX", DISPLAY_FONT, H * 0.22)
+    kata = "チャッド・マックス"
     kata_f, kata_bb = fit(kata, CJK_FONT, H * 0.075) if os.path.exists(CJK_FONT) else (None, (0, 0, 0, 0))
     gap = H * 0.035
     total = (top_bb[3] - top_bb[1]) + gap + (mid_bb[3] - mid_bb[1]) + (gap + kata_bb[3] - kata_bb[1] if kata_f else 0)
@@ -124,7 +124,7 @@ def banner(w=320, h=180):
     d.text((x + shift, y - top_bb[1] + shift), "CHUD", font=top_f, fill=MAGENTA)
     d.text((x, y - top_bb[1]), "CHUD", font=top_f, fill=CYAN)
     y += (top_bb[3] - top_bb[1]) + gap
-    d.text((x, y - mid_bb[1]), "STREAMS", font=mid_f, fill=MAGENTA)
+    d.text((x, y - mid_bb[1]), "MAXXX", font=mid_f, fill=MAGENTA)
     if kata_f:
         y += (mid_bb[3] - mid_bb[1]) + gap
         d.text((x, y - kata_bb[1]), kata, font=kata_f, fill=PALE_CYAN)
