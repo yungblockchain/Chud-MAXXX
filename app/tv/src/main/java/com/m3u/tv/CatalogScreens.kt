@@ -386,16 +386,19 @@ private fun CategoryRow(
             .fillMaxWidth()
             .heightIn(min = 46.dp)
     ) { focused ->
-        if (selected && !focused) {
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .drawBehind {
+        // Always there and only redrawn (not added and removed): Android 9 kept showing a removed
+        // mark on screen.
+        val marked = selected && !focused
+        Box(
+            Modifier
+                .matchParentSize()
+                .drawBehind {
+                    if (marked) {
                         drawRect(TvColors.Focus.copy(alpha = SELECTED_TINT_ALPHA))
                         drawRect(TvColors.Focus, size = Size(SELECTED_BAR_WIDTH.toPx(), size.height))
                     }
-            )
-        }
+                }
+        )
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
