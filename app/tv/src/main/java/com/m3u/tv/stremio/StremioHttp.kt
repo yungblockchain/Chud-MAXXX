@@ -54,7 +54,8 @@ internal object StremioHttp {
 
     suspend fun getBytes(url: String, headers: Map<String, String> = emptyMap()): ByteArray =
         withContext(Dispatchers.IO) {
-            connect(url, "GET", headers, null).use { connection ->
+            val connection = connect(url, "GET", headers, null)
+            try {
                 val code = connection.responseCode
                 val stream = if (code in 200..299) connection.inputStream else connection.errorStream
                 val bytes = stream?.readBytes() ?: ByteArray(0)
@@ -62,13 +63,20 @@ internal object StremioHttp {
                     throw StremioHttpException(code, bytes.decodeToString().take(240).ifBlank { "HTTP $code" })
                 }
                 bytes
+            } finally {
+                connection.disconnect()
             }
         }
 
     suspend fun ping(url: String): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
-            connect(url, "GET", emptyMap(), null).use { it.responseCode in 200..399 }
-        }.getOrDefault(false)
+        val connection = connect(url, "GET", emptyMap(), null)
+        try {
+            connection.responseCode in 200..399
+        } catch (_: Exception) {
+            false
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private suspend fun request(
@@ -77,22 +85,23 @@ internal object StremioHttp {
         headers: Map<String, String>,
         body: ByteArray?,
     ): JsonElement = withContext(Dispatchers.IO) {
+        val connection = connect(url, method, headers, body)
         try {
-            connect(url, method, headers, body).use { connection ->
-                val code = connection.responseCode
-                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-                val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                if (code !in 200..299) {
-                    throw StremioHttpException(code, text.take(240).ifBlank { "HTTP $code" })
-                }
-                if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) {
+                throw StremioHttpException(code, text.take(240).ifBlank { "HTTP $code" })
             }
+            if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)
         } catch (e: CancellationException) {
             throw e
         } catch (e: StremioHttpException) {
             throw e
         } catch (e: Exception) {
             throw StremioHttpException(null, e.message ?: "network")
+        } finally {
+            connection.disconnect()
         }
     }
 

@@ -68,7 +68,7 @@ object RealDebridClient {
                 val links = (info["links"] as? JsonArray)
                     ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
                     .orEmpty()
-                val files = (info["files"] as? JsonArray).orEmpty()
+                val files = info["files"] as? JsonArray ?: JsonArray(emptyList())
                 val chosen = pickFileIndex(files, fileIdx)
                 val link = links.getOrNull(chosen) ?: links.firstOrNull()
                     ?: throw DebridException("Real-Debrid torrent has no files")
@@ -137,7 +137,7 @@ object TorBoxClient {
                     item.text("magnet") == magnet
             } ?: items.mapNotNull { it.asObject() }.lastOrNull() ?: return@repeat
             val id = torrent.int("id") ?: torrent.text("id")?.toIntOrNull() ?: return@repeat
-            val files = (torrent["files"] as? JsonArray).orEmpty()
+            val files = torrent["files"] as? JsonArray ?: JsonArray(emptyList())
             val downloadReady = torrent.text("download_state") in listOf("completed", "cached") ||
                 torrent["cached"]?.jsonPrimitive?.contentOrNull == "true"
             if (!downloadReady && files.isEmpty()) return@repeat
@@ -171,7 +171,7 @@ object TorBoxClient {
             it.text("hash")?.equals(hash, ignoreCase = true) == true
         } ?: return null
         val id = torrent.int("id") ?: torrent.text("id")?.toIntOrNull() ?: return null
-        val files = (torrent["files"] as? JsonArray).orEmpty()
+        val files = torrent["files"] as? JsonArray ?: JsonArray(emptyList())
         val file = pickTorboxFile(files, fileIdx)
         return requestDl(token, id, file?.int("id") ?: file?.text("id")?.toIntOrNull())
     }

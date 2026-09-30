@@ -298,12 +298,14 @@ object BuiltinTorrent {
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "ChudStreams/1.1")
         }
-        connection.use {
-            if (it.responseCode !in 200..299) return emptyList()
-            val body = it.inputStream.readBytes()
+        try {
+            if (connection.responseCode !in 200..299) return emptyList()
+            val body = connection.inputStream.readBytes()
             val root = Bencode.decode(body) as? Map<*, *> ?: return emptyList()
             @Suppress("UNCHECKED_CAST")
             return parsePeers(root as Map<String, Any>)
+        } finally {
+            connection.disconnect()
         }
     }
 
@@ -520,15 +522,17 @@ object BuiltinTorrent {
                 setRequestProperty("Range", "bytes=$fileStart-${fileEnd - 1}")
                 setRequestProperty("User-Agent", "ChudStreams/1.1")
             }
-            connection.use { open ->
-                if (open.responseCode !in listOf(200, 206)) return
-                val bytes = open.inputStream.readBytes()
+            try {
+                if (connection.responseCode !in listOf(200, 206)) return
+                val bytes = connection.inputStream.readBytes()
                 if (bytes.isEmpty()) return
                 synchronized(session.raf) {
                     session.raf.seek(fileStart)
                     session.raf.write(bytes)
                 }
                 session.mark(piece)
+            } finally {
+                connection.disconnect()
             }
         }
     }
