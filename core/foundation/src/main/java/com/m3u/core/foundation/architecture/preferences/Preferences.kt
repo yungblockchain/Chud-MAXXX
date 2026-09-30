@@ -178,7 +178,7 @@ private val PREFERENCES: Map<Preferences.Key<*>, Any> = buildMap {
     put(PreferencesKeys.COLOR_ARGB, ThemePreference.DEFAULT.argb)
     put(PreferencesKeys.THEME_STYLE, ThemePreference.DEFAULT.style)
     put(PreferencesKeys.THEME_PRESET_ID, ThemePreference.DEFAULT.presetId)
-    put(PreferencesKeys.TUNNELING, false)
+    put(PreferencesKeys.TUNNELING, true)
     put(PreferencesKeys.CLOCK_MODE, false)
     put(PreferencesKeys.REMOTE_CONTROL, false)
     put(PreferencesKeys.SLIDER, true)

@@ -55,20 +55,33 @@ import com.m3u.tv.TvFonts
 @Composable
 fun StremioScreen(
     onPlaying: () -> Unit,
+    onManageAddons: () -> Unit = {},
     viewModel: StremioViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    BackHandler(enabled = state.page != StremioPage.Browse) { viewModel.back() }
+    BackHandler(enabled = state.page != StremioPage.Browse && state.page != StremioPage.Addons) {
+        viewModel.back()
+    }
     when (state.page) {
-        StremioPage.Browse -> BrowsePage(state, viewModel)
+        StremioPage.Browse, StremioPage.Addons -> BrowsePage(state, viewModel, onManageAddons)
         StremioPage.Details -> DetailsPage(state, viewModel)
         StremioPage.Streams -> StreamsPage(state, viewModel, onPlaying)
-        StremioPage.Addons -> AddonsPage(state, viewModel)
     }
 }
 
+/** Addon install, debrid tokens and P2P. Lives in Settings, not the side menu. */
 @Composable
-private fun BrowsePage(state: StremioUiState, viewModel: StremioViewModel) {
+fun StremioAddonsSettings(viewModel: StremioViewModel = hiltViewModel()) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    AddonsPage(state, viewModel)
+}
+
+@Composable
+private fun BrowsePage(
+    state: StremioUiState,
+    viewModel: StremioViewModel,
+    onManageAddons: () -> Unit,
+) {
     var query by rememberSaveable { mutableStateOf("") }
     val first = FocusRequester()
     LazyColumn(
@@ -79,7 +92,7 @@ private fun BrowsePage(state: StremioUiState, viewModel: StremioViewModel) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = stringResource(R.string.dial_nav_addons),
+                    text = stringResource(R.string.dial_nav_infinite),
                     color = TvColors.TextPrimary,
                     fontFamily = TvFonts.Accent,
                     fontSize = 28.sp,
@@ -88,7 +101,7 @@ private fun BrowsePage(state: StremioUiState, viewModel: StremioViewModel) {
                 TvActionButton(
                     text = stringResource(R.string.dial_addons_manage),
                     icon = Icons.Rounded.Extension,
-                    onClick = viewModel::openAddons,
+                    onClick = onManageAddons,
                     focusRequester = first,
                     modifier = Modifier.focusRequester(first),
                 )
@@ -361,7 +374,7 @@ private fun AddonsPage(state: StremioUiState, viewModel: StremioViewModel) {
         }
         state.message?.let { message -> item { StatusLine(message) } }
         item { StatusLine(stringResource(R.string.dial_addons_presets_hint)) }
-        items(AddonCatalogPresets.all, key = { it.id }) { preset ->
+        items(AddonCatalogPresets.all, key = { "preset-${it.id}" }) { preset ->
             val installed = state.addons.any { it.id == preset.id || (preset.manifestUrl.isNotBlank() && it.manifestUrl.startsWith(preset.manifestUrl.substringBefore("/manifest"))) }
             FocusFrame(
                 onClick = { viewModel.installPreset(preset) },
@@ -406,7 +419,7 @@ private fun AddonsPage(state: StremioUiState, viewModel: StremioViewModel) {
         }
         if (state.addons.isNotEmpty()) {
             item { StatusLine(stringResource(R.string.dial_addons_installed_header)) }
-            items(state.addons, key = { it.id }) { addon ->
+            items(state.addons, key = { "installed-${it.id}-${it.manifestUrl}" }) { addon ->
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     TvActionButton(
                         text = if (addon.enabled) addon.name else "${addon.name} (off)",

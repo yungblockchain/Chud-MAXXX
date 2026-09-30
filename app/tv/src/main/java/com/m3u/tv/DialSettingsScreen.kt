@@ -43,8 +43,15 @@ class SettingsTab(
 )
 
 @Composable
-fun DialSettingsPane(tabs: List<SettingsTab>) {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+fun DialSettingsPane(
+    tabs: List<SettingsTab>,
+    selectedTab: Int = 0,
+    onSelectTab: (Int) -> Unit = {},
+) {
+    var tab by rememberSaveable { mutableIntStateOf(selectedTab) }
+    androidx.compose.runtime.LaunchedEffect(selectedTab) {
+        tab = selectedTab.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
+    }
     Column(Modifier.fillMaxSize()) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -55,7 +62,10 @@ fun DialSettingsPane(tabs: List<SettingsTab>) {
                     text = item.label,
                     icon = item.icon,
                     selected = tab == index,
-                    onClick = { tab = index },
+                    onClick = {
+                        tab = index
+                        onSelectTab(index)
+                    },
                 )
             }
         }

@@ -240,7 +240,7 @@ class StremioViewModel @Inject constructor(
 
     fun installPreset(preset: PresetAddon) {
         if (preset.manifestUrl.isBlank()) {
-            _state.update { it.copy(page = StremioPage.Addons, message = "Paste the manifest URL from your ${preset.name} config.") }
+            _state.update { it.copy(message = "Paste the manifest URL from your ${preset.name} config in Settings → Addons.") }
             return
         }
         val url = if ("torrentio" in preset.manifestUrl) torrentioUrl() else preset.manifestUrl
@@ -257,8 +257,14 @@ class StremioViewModel @Inject constructor(
 
     fun install(url: String) {
         viewModelScope.launch {
-            installAwait(url)
-            if (_state.value.rows.isEmpty()) refresh()
+            try {
+                installAwait(url)
+                if (_state.value.rows.isEmpty()) refresh()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _state.update { it.copy(message = error.message ?: "Couldn't add that addon") }
+            }
         }
     }
 

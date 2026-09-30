@@ -1,5 +1,6 @@
 package com.m3u.tv
 
+import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
@@ -12,6 +13,7 @@ import com.m3u.data.parser.xtream.XtreamInput
 import com.m3u.data.repository.playlist.PlaylistRepository
 import com.m3u.data.worker.SubscriptionWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.net.ConnectException
 import java.net.HttpURLConnection
 import java.net.NoRouteToHostException
@@ -31,12 +33,14 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -274,13 +278,20 @@ data class XtreamAccount(
 class XtreamAccountViewModel @Inject constructor(
     private val workManager: WorkManager,
     private val playlistRepository: PlaylistRepository,
+    @ApplicationContext context: Context,
 ) : ViewModel() {
+
+    private val sessionPrefs = context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
 
     private val _form = MutableStateFlow(XtreamSignInForm())
     val form: StateFlow<XtreamSignInForm> = _form.asStateFlow()
 
     private val _statuses = MutableStateFlow<Map<String, XtreamAccountStatus>>(emptyMap())
     val statuses: StateFlow<Map<String, XtreamAccountStatus>> = _statuses.asStateFlow()
+
+    /** True once an Xtream login has succeeded on this device, even if the library is still downloading. */
+    private val _hasSession = MutableStateFlow(savedCredentials() != null)
+    val hasSession: StateFlow<Boolean> = _hasSession.asStateFlow()
 
     val accounts: StateFlow<List<XtreamAccount>> = playlistRepository
         .observeAll()
@@ -299,7 +310,23 @@ class XtreamAccountViewModel @Inject constructor(
         viewModelScope.launch {
             accounts.collect { list ->
                 list.filter { it.key !in _statuses.value }.forEach { refreshStatus(it) }
+                if (list.isNotEmpty()) {
+                    _hasSession.value = true
+                    if (savedCredentials() == null) {
+                        val first = list.first()
+                        persistSession(first.credentials, first.title)
+                    }
+                }
             }
+        }
+        // A saved login with an empty library means the last import never landed (or the
+        // database was still opening). Bring the library back instead of showing sign-in again.
+        viewModelScope.launch {
+            val existing = playlistRepository.observeAll().first()
+            if (existing.any { it.source == DataSource.Xtream }) return@launch
+            val saved = savedCredentials() ?: return@launch
+            _hasSession.value = true
+            importAccount(saved, sessionPrefs.getString(KEY_TITLE, null).orEmpty())
         }
     }
 
@@ -405,22 +432,27 @@ class XtreamAccountViewModel @Inject constructor(
         }
     }
 
-    /** Waits for an import to finish, showing how many entries have loaded meanwhile. */
-    private suspend fun awaitImport(workId: UUID): WorkInfo? = workManager
-        .getWorkInfoByIdFlow(workId)
-        .onEach { info ->
-            val count = info?.progress?.getInt(SubscriptionWorker.PROGRESS_INT_COUNT, 0) ?: 0
-            if (count > 0 && info?.state?.isFinished == false) {
-                _form.update { form ->
-                    if (form.phase is XtreamSignInPhase.Importing) {
-                        form.copy(phase = XtreamSignInPhase.Importing(count))
-                    } else {
-                        form
+    /** Waits for an import to finish, showing how many entries have loaded meanwhile.
+     *  A missing work row is not success: WorkManager emits null before the job is written,
+     *  and treating that as "loaded" left Live TV, Films and Series on the login screen. */
+    private suspend fun awaitImport(workId: UUID): WorkInfo? = withTimeoutOrNull(IMPORT_TIMEOUT_MS) {
+        workManager
+            .getWorkInfoByIdFlow(workId)
+            .mapNotNull { it }
+            .onEach { info ->
+                val count = info.progress.getInt(SubscriptionWorker.PROGRESS_INT_COUNT, 0)
+                if (count > 0 && !info.state.isFinished) {
+                    _form.update { form ->
+                        if (form.phase is XtreamSignInPhase.Importing) {
+                            form.copy(phase = XtreamSignInPhase.Importing(count))
+                        } else {
+                            form
+                        }
                     }
                 }
             }
-        }
-        .first { info -> info == null || info.state.isFinished }
+            .first { info -> info.state.isFinished }
+    }
 
     fun signIn() {
         val current = _form.value
@@ -459,6 +491,7 @@ class XtreamAccountViewModel @Inject constructor(
                     if (!status.active) {
                         fail(XtreamSignInError.AccountInactive, status.status)
                     } else {
+                        persistSession(credentials, _form.value.name.trim())
                         importAccount(credentials, _form.value.name.trim(), status)
                     }
                 }
@@ -466,11 +499,20 @@ class XtreamAccountViewModel @Inject constructor(
         }
     }
 
+    fun retrySaved() {
+        val saved = savedCredentials() ?: return
+        if (_form.value.busy) return
+        viewModelScope.launch {
+            importAccount(saved, sessionPrefs.getString(KEY_TITLE, null).orEmpty())
+        }
+    }
+
     private suspend fun importAccount(
         credentials: XtreamCredentials,
         name: String,
-        status: XtreamAccountStatus.Ready,
+        status: XtreamAccountStatus.Ready? = null,
     ) {
+        persistSession(credentials, name)
         val title = name.ifEmpty { Uri.parse(credentials.server).host ?: credentials.server }
         val workId = try {
             SubscriptionWorker.xtream(
@@ -488,19 +530,28 @@ class XtreamAccountViewModel @Inject constructor(
             return
         }
         _form.update { it.copy(phase = XtreamSignInPhase.Importing()) }
-        _statuses.update { it + (accountKey(credentials) to status) }
+        if (status != null) {
+            _statuses.update { it + (accountKey(credentials) to status) }
+        }
 
         // Big providers take minutes; the form shows how far the download has got.
         val finished = awaitImport(workId)
-        if (finished == null || finished.state == WorkInfo.State.SUCCEEDED) {
-            // Keep the server so adding a second login on the same panel is quick.
+        if (finished?.state == WorkInfo.State.SUCCEEDED) {
+            // Keep the login so a second account on the same panel is quick, and so a
+            // restart never asks again.
             _form.update {
-                XtreamSignInForm(server = it.server, phase = XtreamSignInPhase.Done)
+                XtreamSignInForm(
+                    server = credentials.server,
+                    username = credentials.username,
+                    password = credentials.password,
+                    phase = XtreamSignInPhase.Done,
+                )
             }
         } else {
             fail(
                 XtreamSignInError.ImportFailed,
-                detail = finished.outputData.getString(SubscriptionWorker.OUTPUT_STRING_ERROR),
+                detail = finished?.outputData?.getString(SubscriptionWorker.OUTPUT_STRING_ERROR)
+                    ?: if (finished == null) "timed out" else finished.state.name,
             )
         }
     }
@@ -514,6 +565,8 @@ class XtreamAccountViewModel @Inject constructor(
     }
 
     fun remove(account: XtreamAccount) {
+        val saved = savedCredentials()
+        if (saved != null && accountKey(saved) == account.key) clearSession()
         viewModelScope.launch {
             account.playlistUrls.forEach { url ->
                 runCatching { playlistRepository.unsubscribe(url) }
@@ -555,4 +608,36 @@ class XtreamAccountViewModel @Inject constructor(
 
     private fun accountKey(credentials: XtreamCredentials): String =
         "${credentials.server.lowercase()}|${credentials.username}"
+
+    private fun savedCredentials(): XtreamCredentials? {
+        val server = sessionPrefs.getString(KEY_SERVER, null) ?: return null
+        val username = sessionPrefs.getString(KEY_USER, null) ?: return null
+        val password = sessionPrefs.getString(KEY_PASS, null) ?: return null
+        if (server.isBlank() || username.isBlank() || password.isBlank()) return null
+        return XtreamCredentials(server, username, password)
+    }
+
+    private fun persistSession(credentials: XtreamCredentials, title: String) {
+        sessionPrefs.edit()
+            .putString(KEY_SERVER, credentials.server)
+            .putString(KEY_USER, credentials.username)
+            .putString(KEY_PASS, credentials.password)
+            .putString(KEY_TITLE, title)
+            .apply()
+        _hasSession.value = true
+    }
+
+    private fun clearSession() {
+        sessionPrefs.edit().clear().apply()
+        _hasSession.value = false
+    }
+
+    private companion object {
+        const val SESSION_PREFS = "xtream_session"
+        const val KEY_SERVER = "server"
+        const val KEY_USER = "username"
+        const val KEY_PASS = "password"
+        const val KEY_TITLE = "title"
+        const val IMPORT_TIMEOUT_MS = 30 * 60_000L
+    }
 }

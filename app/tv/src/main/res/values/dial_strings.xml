@@ -514,6 +514,16 @@
     <string name="dial_nav_films">Films</string>
     <string name="dial_nav_series">Series</string>
     <string name="dial_nav_addons">Addons</string>
+    <string name="dial_nav_infinite">Infinite</string>
+    <string name="dial_nav_match">Match Centre</string>
+    <string name="dial_settings_tab_addons">Addons</string>
+    <string name="dial_library_restoring">Opening your Xtream library</string>
+    <string name="dial_library_restoring_hint">You stay signed in. Live TV, films and series appear as soon as the list finishes downloading.</string>
+    <string name="dial_library_retry">Try again</string>
+    <string name="dial_player_rewind">Back %1$d seconds</string>
+    <string name="dial_player_forward">Forward %1$d seconds</string>
+    <string name="dial_value_hdr_on">HDR, HDR10+ and Dolby Vision on</string>
+    <string name="dial_value_hdr_off">HDR passthrough off</string>
     <string name="dial_nav_search">Search</string>
     <string name="dial_nav_home">Home</string>
     <string name="dial_catalog_all">All</string>

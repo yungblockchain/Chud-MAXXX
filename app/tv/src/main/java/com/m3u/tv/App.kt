@@ -39,6 +39,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,6 +94,8 @@ fun tvDestinationFromExtra(value: String?): TvDestination? {
     if (name == "settings") return TvDestination.Status
     // The old single Browse tab is Live TV now.
     if (name == "library" || name == "browse") return TvDestination.Live
+    if (name == "addons") return TvDestination.Infinite
+    if (name == "match" || name == "matchcentre" || name == "match-centre") return TvDestination.MatchCentre
     return TvDestination.entries.firstOrNull { it.name.lowercase() == name }
 }
 
@@ -106,6 +109,7 @@ private val CatalogKind.destination: TvDestination
 
 /** How long a screen gets to take focus itself before the app puts focus in it. */
 private const val FOCUS_RESCUE_MS = 450L
+private const val SETTINGS_TAB_ADDONS = 3
 
 /** The remote counts as resting after this long without a key press. */
 private const val REMOTE_IDLE_AFTER_MS = 3_000L
@@ -146,6 +150,7 @@ fun App(
     multiview: MultiviewViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val hasXtreamSession by accounts.hasSession.collectAsStateWithLifecycle()
     val player by viewModel.player.collectAsStateWithLifecycle()
     val currentChannel by viewModel.currentChannel.collectAsStateWithLifecycle()
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
@@ -159,6 +164,7 @@ fun App(
     val diagnosticsShareTitle = stringResource(string.feat_setting_extension_diagnostics_share_title)
     val currentDiagnosticsShareTitle by rememberUpdatedState(diagnosticsShareTitle)
     var destination by remember { mutableStateOf(initialDestination ?: TvDestination.Home) }
+    var settingsTab by remember { mutableIntStateOf(0) }
     var surface by remember { mutableStateOf(TvSurface.Browse) }
     val closePlayer = {
         viewModel.releasePlayer()
@@ -577,6 +583,14 @@ fun App(
                     },
                     onAddSource = { destination = TvDestination.Account },
                     onPlayResolved = { surface = TvSurface.Player },
+                    onManageAddons = {
+                        settingsTab = SETTINGS_TAB_ADDONS
+                        destination = TvDestination.Status
+                    },
+                    signedIn = state.playlists.isNotEmpty() || hasXtreamSession,
+                    restoringLibrary = state.playlists.isEmpty() && hasXtreamSession,
+                    settingsTab = settingsTab,
+                    onSettingsTab = { settingsTab = it },
                     onRefresh = viewModel::refreshSelectedPlaylist,
                     onPlay = openOrPlay,
                     onPlayRecent = { state.recent?.let(openOrPlay) },
@@ -796,11 +810,7 @@ fun App(
             )
         }
 
-        AnimatedVisibility(
-            visible = surface == TvSurface.Player,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
+        if (surface == TvSurface.Player) {
             TvPlayerScreen(
                 player = player,
                 channel = currentChannel,

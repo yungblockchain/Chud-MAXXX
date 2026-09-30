@@ -59,7 +59,7 @@ import kotlinx.coroutines.launch
 
 @Immutable
 data class PlaybackSettingsState(
-    val tunneling: Boolean = false,
+    val tunneling: Boolean = true,
     val dolbyVisionAsHdr10: Boolean = false,
     val audioPassthrough: Boolean = true,
     val preferSoftwareDecoder: Boolean = false,
@@ -102,7 +102,7 @@ class PlaybackSettingsViewModel @Inject constructor(
 
     companion object {
         const val MAX_DELAY_MS = 10_000
-        const val DELAY_STEP_MS = 50
+        const val DELAY_STEP_MS = 1
     }
 }
 
@@ -191,8 +191,11 @@ fun PlaybackSettingsScreen(
         item {
             SettingRow(
                 label = stringResource(R.string.dial_playback_hdr),
-                value = stringResource(R.string.dial_value_hdr_passthrough),
-                onClick = {},
+                value = stringResource(
+                    if (state.tunneling) R.string.dial_value_hdr_on
+                    else R.string.dial_value_hdr_off
+                ),
+                onClick = { viewModel.set(PreferencesKeys.TUNNELING, !state.tunneling) },
             )
         }
         item {

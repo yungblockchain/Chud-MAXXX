@@ -61,6 +61,7 @@ import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
 import androidx.media3.ui.compose.PlayerSurface
 import androidx.media3.ui.compose.SURFACE_TYPE_SURFACE_VIEW
+import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.m3u.core.foundation.util.basic.title
@@ -528,7 +529,9 @@ fun MiniPlayer(
         ) {
             PlayerSurface(
                 player = player,
-                surfaceType = SURFACE_TYPE_SURFACE_VIEW,
+                // TextureView composites with the menus. SurfaceView punches a hole through
+                // the whole screen, which hid the UI whenever the video was minimised.
+                surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
                 modifier = Modifier.fillMaxSize(),
             )
         }

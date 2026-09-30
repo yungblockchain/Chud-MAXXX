@@ -55,6 +55,7 @@
         <!-- The keyboard never opens by itself; text boxes open it when OK is pressed. -->
         <activity
             android:name=".MainActivity"
+            android:colorMode="hdr"
             android:exported="true"
             android:windowSoftInputMode="stateAlwaysHidden">
             <intent-filter>

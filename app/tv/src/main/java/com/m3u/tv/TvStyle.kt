@@ -73,8 +73,11 @@ enum class TvDestination(
     Live(Icons.Rounded.LiveTv),
     Films(Icons.Rounded.Movie),
     Series(Icons.Rounded.VideoLibrary),
-    Addons(Icons.Rounded.CloudDownload),
+    /** Debrid and addon catalogs (Stremio). Managing which addons are installed lives in Settings. */
+    Infinite(Icons.Rounded.AllInclusive),
     Guide(Icons.Rounded.DateRange),
+    /** Live scores, fixtures, lineups. */
+    MatchCentre(Icons.Rounded.SportsSoccer),
     Favorites(Icons.Rounded.Favorite),
     /** Saved films and series, and what's half-watched. */
     MyLibrary(Icons.Rounded.Bookmarks),

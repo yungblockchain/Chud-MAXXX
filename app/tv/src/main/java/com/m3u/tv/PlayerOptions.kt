@@ -226,7 +226,7 @@ class PlayerOptionsViewModel @Inject constructor(
 
     private companion object {
         val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
-        const val STEP_MS = 50
+        const val STEP_MS = 1
     }
 }
 

@@ -68,6 +68,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
@@ -76,6 +77,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -1147,7 +1149,13 @@ internal class PlaylistRepositoryImpl @Inject constructor(
 
     override fun observeAllCounts(): Flow<Map<Playlist, Int>> = playlistDao.observeAllCounts()
             .map { it.toMap() }
-            .catch { emit(emptyMap()) }
+            .retryWhen { cause, attempt ->
+                // An empty map used to be emitted on any error, which the TV shell reads as
+                // "no library" and replaces Live TV / Films / Series with the login screen.
+                if (cause is CancellationException || attempt >= 8) return@retryWhen false
+                delay(300L * (attempt + 1))
+                true
+            }
 
     override suspend fun readEpisodesOrThrow(series: Channel): List<XtreamEpisodeInfo> {
         val playlist = checkNotNull(get(series.playlistUrl)) { "playlist is not exist" }

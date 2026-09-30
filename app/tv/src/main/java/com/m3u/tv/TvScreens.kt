@@ -6,7 +6,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.Composable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -54,8 +57,9 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -182,6 +186,13 @@ fun TvBrowsePane(
     onShowCatalog: (CatalogKind) -> Unit = {},
     onAddSource: () -> Unit = {},
     onPlayResolved: () -> Unit = {},
+    onManageAddons: () -> Unit = {},
+    /** An Xtream login is saved on this device, even if the library has not finished downloading. */
+    signedIn: Boolean = false,
+    /** Saved login, library not in the database yet. Do not show the sign-in form. */
+    restoringLibrary: Boolean = false,
+    settingsTab: Int = 0,
+    onSettingsTab: (Int) -> Unit = {},
 ) {
     Box(
         modifier = modifier
@@ -189,16 +200,29 @@ fun TvBrowsePane(
         contentAlignment = Alignment.Center
     ) {
         if (
-            state.playlists.isEmpty() &&
+            !signedIn &&
             destination != TvDestination.Status &&
             destination != TvDestination.Markets &&
             destination != TvDestination.Games &&
             destination != TvDestination.Claude &&
-            destination != TvDestination.Addons
+            destination != TvDestination.Infinite &&
+            destination != TvDestination.MatchCentre &&
+            destination != TvDestination.Account
         ) {
             // Dial: first run goes straight to Xtream sign-in on the TV itself, instead of
             // asking for the phone app. Pairing from the phone app still works as before.
             XtreamSignInScreen(requestInitialFocus = destination == TvDestination.Home)
+        } else if (
+            restoringLibrary &&
+            destination != TvDestination.Status &&
+            destination != TvDestination.Markets &&
+            destination != TvDestination.Games &&
+            destination != TvDestination.Claude &&
+            destination != TvDestination.Infinite &&
+            destination != TvDestination.MatchCentre &&
+            destination != TvDestination.Account
+        ) {
+            LibraryRestoring()
         } else AnimatedContent(
             targetState = destination,
             // A quick cross-fade: the new tab is built while the old one fades, so a longer or
@@ -245,7 +269,12 @@ fun TvBrowsePane(
                         onAddSource = onAddSource,
                     )
 
-                    TvDestination.Addons -> StremioScreen(onPlaying = onPlayResolved)
+                    TvDestination.Infinite -> StremioScreen(
+                        onPlaying = onPlayResolved,
+                        onManageAddons = onManageAddons,
+                    )
+
+                    TvDestination.MatchCentre -> MatchCentreScreen()
 
                     TvDestination.Favorites -> favouritesContent()
 
@@ -279,6 +308,11 @@ fun TvBrowsePane(
                                 content = servicesSettingsContent,
                             ),
                             SettingsTab(
+                                label = stringResource(R.string.dial_settings_tab_addons),
+                                icon = Icons.Rounded.Extension,
+                                content = { StremioAddonsSettings() },
+                            ),
+                            SettingsTab(
                                 label = stringResource(R.string.dial_settings_tab_sources),
                                 icon = Icons.Rounded.Extension,
                                 content = {
@@ -306,9 +340,55 @@ fun TvBrowsePane(
                                 },
                             ),
                         ),
+                        selectedTab = settingsTab,
+                        onSelectTab = onSettingsTab,
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun LibraryRestoring(
+    accounts: XtreamAccountViewModel = hiltViewModel(),
+) {
+    val form by accounts.form.collectAsStateWithLifecycle()
+    Column(
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(48.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.dial_library_restoring),
+            color = TvColors.TextPrimary,
+            fontFamily = TvFonts.Accent,
+            fontSize = 28.sp,
+        )
+        val detail = when (val phase = form.phase) {
+            is XtreamSignInPhase.Importing -> if (phase.count > 0) {
+                stringResource(R.string.dial_signin_importing_count, phase.count)
+            } else {
+                stringResource(R.string.dial_signin_importing)
+            }
+            XtreamSignInPhase.Checking -> stringResource(R.string.dial_signin_checking)
+            is XtreamSignInPhase.Failed -> stringResource(R.string.dial_error_import)
+            else -> stringResource(R.string.dial_library_restoring_hint)
+        }
+        Text(
+            text = detail,
+            color = TvColors.TextSecondary,
+            fontFamily = TvFonts.Body,
+            fontSize = 18.sp,
+        )
+        if (form.phase is XtreamSignInPhase.Failed) {
+            TvActionButton(
+                text = stringResource(R.string.dial_library_retry),
+                icon = Icons.Rounded.PlayCircle,
+                onClick = accounts::retrySaved,
+            )
         }
     }
 }

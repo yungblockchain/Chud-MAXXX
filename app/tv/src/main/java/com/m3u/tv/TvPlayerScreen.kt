@@ -3,6 +3,7 @@ package com.m3u.tv
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.material.icons.rounded.Tune
@@ -14,6 +15,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -38,6 +40,8 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.FastForward
+import androidx.compose.material.icons.rounded.FastRewind
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -56,6 +60,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -151,6 +156,16 @@ fun TvPlayerScreen(
     var videoAspect by remember(player) { mutableFloatStateOf(0f) }
     var videoFrameRate by remember(player) { mutableFloatStateOf(0f) }
     val activity = remember(view) { view.context.findActivity() }
+    DisposableEffect(activity) {
+        val window = activity?.window
+        val previousMode = window?.colorMode
+        // Let the Fire TV switch the HDMI output into HDR / HDR10+ / Dolby Vision
+        // while this surface is showing a stream that carries that metadata.
+        window?.colorMode = ActivityInfo.COLOR_MODE_HDR
+        onDispose {
+            if (window != null && previousMode != null) window.colorMode = previousMode
+        }
+    }
     val controlsTimeoutMs = preferences.controlsTimeoutSeconds * 1_000L
     val skipBackMs = preferences.skipBackSeconds * 1_000L
     val skipAheadMs = preferences.skipAheadSeconds * 1_000L
@@ -449,7 +464,15 @@ fun TvPlayerScreen(
                     notice = stateNotice,
                 )
                 if (!live && duration > 0L) {
-                    ProgressLine(position = position, duration = duration)
+                    ProgressLine(
+                        position = position,
+                        duration = duration,
+                        skipMs = skipAheadMs,
+                        onSeek = { target ->
+                            player?.seekTo(target)
+                            showControls()
+                        },
+                    )
                 }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -490,6 +513,22 @@ fun TvPlayerScreen(
                         )
                     }
                     if (!live) {
+                        TvIconActionButton(
+                            icon = Icons.Rounded.FastRewind,
+                            contentDescription = stringResource(R.string.dial_player_rewind, preferences.skipBackSeconds),
+                            onClick = {
+                                seekBy(-skipBackMs)
+                                showControls()
+                            },
+                        )
+                        TvIconActionButton(
+                            icon = Icons.Rounded.FastForward,
+                            contentDescription = stringResource(R.string.dial_player_forward, preferences.skipAheadSeconds),
+                            onClick = {
+                                seekBy(skipAheadMs)
+                                showControls()
+                            },
+                        )
                         TvIconActionButton(
                             icon = Icons.Rounded.Replay,
                             contentDescription = stringResource(R.string.dial_player_start_over),
@@ -712,16 +751,39 @@ private fun TuningPill(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ProgressLine(position: Long, duration: Long) {
+private fun ProgressLine(
+    position: Long,
+    duration: Long,
+    skipMs: Long,
+    onSeek: (Long) -> Unit,
+) {
     val fraction = (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+    var focused by remember { mutableStateOf(false) }
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.widthIn(max = 960.dp)
+        modifier = Modifier
+            .widthIn(max = 960.dp)
+            .onPreviewKeyEvent { event ->
+                if (!focused || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionLeft -> {
+                        onSeek((position - skipMs).coerceAtLeast(0L))
+                        true
+                    }
+                    Key.DirectionRight -> {
+                        onSeek((position + skipMs).coerceAtMost(duration))
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(6.dp)
+                .height(if (focused) 10.dp else 6.dp)
                 .clip(RoundedCornerShape(3.dp))
                 .background(Color.White.copy(alpha = 0.22f))
         ) {
@@ -729,12 +791,12 @@ private fun ProgressLine(position: Long, duration: Long) {
                 modifier = Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(fraction)
-                    .background(TvColors.Focus)
+                    .background(if (focused) TvColors.Accent else TvColors.Focus)
             )
         }
         Text(
             text = "${formatTime(position)} / ${formatTime(duration)}",
-            color = TvColors.TextSecondary,
+            color = if (focused) TvColors.TextPrimary else TvColors.TextSecondary,
             fontFamily = TvFonts.Body,
             fontSize = 14.sp,
         )

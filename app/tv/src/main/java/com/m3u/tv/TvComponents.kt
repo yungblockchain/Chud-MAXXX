@@ -222,8 +222,8 @@ fun TvNavigationRail(
                     )
                 } else {
                     Brush.horizontalGradient(
-                        0f to Color.Black.copy(alpha = 0.34f),
-                        1f to Color.Black.copy(alpha = 0.22f),
+                        0f to TvColors.Background.copy(alpha = 0.97f),
+                        1f to TvColors.Background.copy(alpha = 0.94f),
                     )
                 }
             )
@@ -275,6 +275,7 @@ fun TvNavigationRail(
                     RailItem(
                         destination = destination,
                         selected = destination == selected,
+                        expanded = expanded,
                         focusRequester = requesters.getValue(destination),
                         onFocus = { focusedEntry[0] = destination },
                         onClick = { onSelect(destination) }
@@ -289,6 +290,7 @@ fun TvNavigationRail(
 private fun RailItem(
     destination: TvDestination,
     selected: Boolean,
+    expanded: Boolean,
     focusRequester: FocusRequester,
     onFocus: () -> Unit,
     onClick: () -> Unit
@@ -327,16 +329,18 @@ private fun RailItem(
                 tint = if (active) TvColors.OnFocus else TvColors.TextSecondary,
                 modifier = Modifier.size(22.dp)
             )
-            Text(
-                text = label,
-                color = if (active) TvColors.OnFocus else TvColors.TextPrimary,
-                fontFamily = TvFonts.Body,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
+            if (expanded) {
+                Text(
+                    text = label,
+                    color = if (active) TvColors.OnFocus else TvColors.TextPrimary,
+                    fontFamily = TvFonts.Body,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
     }
 }
@@ -348,8 +352,9 @@ private fun TvDestination.label(): String = when (this) {
     TvDestination.Live -> stringResource(R.string.dial_nav_live)
     TvDestination.Films -> stringResource(R.string.dial_nav_films)
     TvDestination.Series -> stringResource(R.string.dial_nav_series)
-    TvDestination.Addons -> stringResource(R.string.dial_nav_addons)
+    TvDestination.Infinite -> stringResource(R.string.dial_nav_infinite)
     TvDestination.Guide -> stringResource(R.string.dial_nav_guide)
+    TvDestination.MatchCentre -> stringResource(R.string.dial_nav_match)
     TvDestination.Favorites -> stringResource(string.tv_favorites_title)
     TvDestination.MyLibrary -> stringResource(R.string.dial_nav_my_library)
     TvDestination.Markets -> stringResource(R.string.dial_nav_markets)

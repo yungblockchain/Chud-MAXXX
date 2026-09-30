@@ -64,8 +64,8 @@ data class DialPreferences(
     companion object {
         val SUBTITLE_SIZE_OPTIONS = listOf(75, 100, 125, 150, 200)
         val CONTROLS_TIMEOUT_OPTIONS = listOf(3, 5, 8, 12)
-        val SKIP_BACK_OPTIONS = listOf(5, 10, 15, 30)
-        val SKIP_AHEAD_OPTIONS = listOf(10, 30, 60, 120)
+        val SKIP_BACK_OPTIONS = listOf(1, 5, 10, 30, 60, 120)
+        val SKIP_AHEAD_OPTIONS = listOf(1, 5, 10, 30, 60, 120)
     }
 }
 
