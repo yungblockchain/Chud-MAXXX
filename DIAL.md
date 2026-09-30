@@ -151,6 +151,17 @@ Inter and Lexend fonts, `fastlane/`, `.github/images/`, `.idea/`. The `parser` a
 `native-load-gradle-plugin` git submodules are included as plain folders so the project builds
 from the zip.
 
+## Addons, debrid and P2P
+
+The **Addons** tab speaks the Stremio addon protocol (the same one Nuvio uses).
+
+- **Metadata.** One press installs Cinemeta. The Movie Database addon is there too. Any other manifest URL can be pasted.
+- **Streams.** Torrentio is installed the same way. If a Real-Debrid token or TorBox key is saved, Torrentio is configured with it so cached links come back first. AIOStreams needs the manifest URL from your own config.
+- **Debrid.** Real-Debrid and TorBox tokens are typed on the Addons tab or in Settings, Services. They stay in the encrypted store. Magnets are added and unrestricted on the device; a cached HTTP link is what the player opens.
+- **P2P.** On by default. If TorrServe is running (the address is on the Addons tab, usually `http://127.0.0.1:8090`), playback goes through it. Otherwise the built-in engine asks trackers for peers, downloads the video in order, and plays it through a local address. Turn P2P off to require a direct link or a debrid account.
+
+Addons work before an Xtream account is signed in. The hidden "Addons" playlist used for playback does not show up under Live TV.
+
 ## Build it
 
 The code hasn't been compiled yet: the tool that wrote it couldn't reach Google's Maven

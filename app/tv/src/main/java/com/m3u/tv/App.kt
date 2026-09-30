@@ -576,6 +576,7 @@ fun App(
                         destination = kind.destination
                     },
                     onAddSource = { destination = TvDestination.Account },
+                    onPlayResolved = { surface = TvSurface.Player },
                     onRefresh = viewModel::refreshSelectedPlaylist,
                     onPlay = openOrPlay,
                     onPlayRecent = { state.recent?.let(openOrPlay) },

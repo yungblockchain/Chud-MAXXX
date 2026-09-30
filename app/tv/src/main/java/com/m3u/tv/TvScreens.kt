@@ -129,6 +129,7 @@ import com.m3u.extension.api.ExtensionSettingType
 import com.m3u.extension.api.ExtensionState
 import com.m3u.i18n.R.string
 import com.m3u.i18n.R.plurals
+import com.m3u.tv.stremio.StremioScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.JsonPrimitive
@@ -180,6 +181,7 @@ fun TvBrowsePane(
     /** Go to the Live TV, Films or Series tab (Home's big buttons). */
     onShowCatalog: (CatalogKind) -> Unit = {},
     onAddSource: () -> Unit = {},
+    onPlayResolved: () -> Unit = {},
 ) {
     Box(
         modifier = modifier
@@ -191,7 +193,8 @@ fun TvBrowsePane(
             destination != TvDestination.Status &&
             destination != TvDestination.Markets &&
             destination != TvDestination.Games &&
-            destination != TvDestination.Claude
+            destination != TvDestination.Claude &&
+            destination != TvDestination.Addons
         ) {
             // Dial: first run goes straight to Xtream sign-in on the TV itself, instead of
             // asking for the phone app. Pairing from the phone app still works as before.
@@ -241,6 +244,8 @@ fun TvBrowsePane(
                         onPlay = onPlay,
                         onAddSource = onAddSource,
                     )
+
+                    TvDestination.Addons -> StremioScreen(onPlaying = onPlayResolved)
 
                     TvDestination.Favorites -> favouritesContent()
 

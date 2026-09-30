@@ -7,6 +7,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewModelScope
+import com.m3u.tv.stremio.StremioAddonStore
+import com.m3u.tv.stremio.StremioClient
+import com.m3u.tv.stremio.TorrentioConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.text.DateFormat
 import java.util.Date
@@ -59,6 +62,7 @@ class ServicesSettingsViewModel @Inject constructor(
     private val secrets: SecretStore,
     private val companion: PhoneCompanion,
     private val store: DialSettingsStore,
+    private val addons: StremioAddonStore,
 ) : ViewModel() {
     val saved: StateFlow<Set<SecretName>> = secrets.saved
     val phonePage: StateFlow<CompanionInfo?> = companion.info
@@ -75,9 +79,28 @@ class ServicesSettingsViewModel @Inject constructor(
         refreshReports()
     }
 
-    fun save(name: SecretName, value: String) = secrets.put(name, value)
+    fun save(name: SecretName, value: String) {
+        secrets.put(name, value)
+        if (name == SecretName.RealDebrid || name == SecretName.TorBox) syncTorrentio()
+    }
 
-    fun remove(name: SecretName) = secrets.remove(name)
+    fun remove(name: SecretName) {
+        secrets.remove(name)
+        if (name == SecretName.RealDebrid || name == SecretName.TorBox) syncTorrentio()
+    }
+
+    private fun syncTorrentio() {
+        val installed = addons.addons.value.any {
+            it.manifestUrl.contains("torrentio.strem.fun") || it.id.contains("torrentio", ignoreCase = true)
+        }
+        if (!installed) return
+        val url = TorrentioConfig.manifestUrl(secrets.get(SecretName.RealDebrid), secrets.get(SecretName.TorBox))
+        viewModelScope.launch {
+            runCatching { StremioClient.fetchManifest(url) }
+                .onSuccess { addons.upsert(it) }
+                .onFailure { addons.replaceTorrentio(url) }
+        }
+    }
 
     fun togglePhonePage() {
         if (companion.running) companion.stop() else companion.start()
@@ -159,6 +182,13 @@ fun ServicesSettingsScreen(
         item { KeyRow(SecretName.Tmdb, R.string.dial_services_tmdb, R.string.dial_services_tmdb_hint) }
         item {
             KeyRow(SecretName.TraktClientId, R.string.dial_services_trakt, R.string.dial_services_trakt_hint)
+        }
+        item { SettingsSection(stringResource(R.string.dial_services_section_debrid)) }
+        item {
+            KeyRow(SecretName.RealDebrid, R.string.dial_services_realdebrid, R.string.dial_services_realdebrid_hint)
+        }
+        item {
+            KeyRow(SecretName.TorBox, R.string.dial_services_torbox, R.string.dial_services_torbox_hint)
         }
 
         item { SettingsSection(stringResource(R.string.dial_services_section_markets)) }

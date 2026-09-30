@@ -369,6 +369,11 @@
     <!-- Settings > Services -->
     <string name="dial_services_intro">Your own keys for extra features. Type them here or send them from the phone page. They stay encrypted on this Fire TV and only go to their own service.</string>
     <string name="dial_services_section_film">Film and TV info</string>
+    <string name="dial_services_section_debrid">Debrid</string>
+    <string name="dial_services_realdebrid">Real-Debrid API token</string>
+    <string name="dial_services_realdebrid_hint">Token from real-debrid.com/apitoken</string>
+    <string name="dial_services_torbox">TorBox API key</string>
+    <string name="dial_services_torbox_hint">API key from torbox.app settings</string>
     <string name="dial_services_tmdb">TMDB API key</string>
     <string name="dial_services_tmdb_hint">API key (v3) or read access token from themoviedb.org</string>
     <string name="dial_services_trakt">Trakt client ID</string>
@@ -508,6 +513,7 @@
     <string name="dial_nav_live">Live TV</string>
     <string name="dial_nav_films">Films</string>
     <string name="dial_nav_series">Series</string>
+    <string name="dial_nav_addons">Addons</string>
     <string name="dial_nav_search">Search</string>
     <string name="dial_nav_home">Home</string>
     <string name="dial_catalog_all">All</string>
@@ -534,6 +540,29 @@
         <item quantity="other">%s series</item>
     </plurals>
     <string name="dial_search_hint">Press OK on the box to type. Searches live TV, films and series.</string>
+    <string name="dial_addons_manage">Addons</string>
+    <string name="dial_addons_search">Search films and series</string>
+    <string name="dial_addons_search_go">Search</string>
+    <string name="dial_addons_starter">Install Cinemeta and Torrentio</string>
+    <string name="dial_addons_loading">Loading…</string>
+    <string name="dial_addons_empty">Install Cinemeta or TMDB for posters, then Torrentio or AIOStreams for links. Real-Debrid and TorBox play cached torrents. P2P streams on this Fire TV when those aren\'t set.</string>
+    <string name="dial_addons_play">Find streams</string>
+    <string name="dial_addons_season">Season %1$d</string>
+    <string name="dial_addons_streams">Streams</string>
+    <string name="dial_addons_resolving">Opening %1$s…</string>
+    <string name="dial_addons_presets_hint">One press installs a known addon. AIOStreams needs the manifest URL from your own config.</string>
+    <string name="dial_addons_paste">Addon manifest URL</string>
+    <string name="dial_addons_install">Install manifest</string>
+    <string name="dial_addons_installed">Installed</string>
+    <string name="dial_addons_installed_header">On this Fire TV</string>
+    <string name="dial_addons_remove">Remove</string>
+    <string name="dial_addons_p2p">P2P torrent streaming</string>
+    <string name="dial_addons_p2p_on">On. TorrServe is used when it answers, otherwise this Fire TV streams from peers.</string>
+    <string name="dial_addons_p2p_off">Off. Streams need a direct link or a debrid account.</string>
+    <string name="dial_addons_torrserve">TorrServe address</string>
+    <string name="dial_addons_torrserve_test">Test TorrServe</string>
+    <string name="dial_addons_torrserve_up">Answering</string>
+    <string name="dial_addons_torrserve_down">No answer</string>
     <string name="dial_search_start">Type at least two letters.</string>
     <string name="dial_home_browse">Watch</string>
     <string name="dial_home_browse_hint">Live channels, films and series, by category.</string>

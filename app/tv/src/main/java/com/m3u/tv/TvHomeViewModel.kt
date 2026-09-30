@@ -36,6 +36,7 @@ import com.m3u.data.repository.provider.SubscriptionProviderRepository
 import com.m3u.data.repository.tv.TvRepository
 import com.m3u.data.service.DPadReactionService
 import com.m3u.data.service.MediaCommand
+import com.m3u.tv.stremio.StremioIds
 import com.m3u.data.service.PlayerManager
 import com.m3u.extension.api.ExtensionId
 import com.m3u.extension.api.subscription.SubscriptionProviderDescriptor
@@ -886,6 +887,7 @@ class TvHomeViewModel @Inject constructor(
                     val state = _state.value
                     val playlists = counts.keys
                         .filterNot { it.source == DataSource.EPG }
+                        .filterNot { it.url == StremioIds.PLAYLIST_URL }
                         .sortedWith(
                             localeAwareComparator(
                                 primarySelector = Playlist::title,

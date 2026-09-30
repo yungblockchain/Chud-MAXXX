@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.asStateFlow
 enum class SecretName(val key: String) {
     OpenSubtitles("opensubtitles_api_key"),
     Tmdb("tmdb_api_key"),
+    RealDebrid("real_debrid_token"),
+    TorBox("torbox_api_key"),
     TraktClientId("trakt_client_id"),
     GitHubToken("github_token"),
     GitHubRepo("github_repo"),

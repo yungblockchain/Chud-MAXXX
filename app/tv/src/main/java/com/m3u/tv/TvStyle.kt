@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.TrendingUp
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Bookmarks
+import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Home
@@ -72,6 +73,7 @@ enum class TvDestination(
     Live(Icons.Rounded.LiveTv),
     Films(Icons.Rounded.Movie),
     Series(Icons.Rounded.VideoLibrary),
+    Addons(Icons.Rounded.CloudDownload),
     Guide(Icons.Rounded.DateRange),
     Favorites(Icons.Rounded.Favorite),
     /** Saved films and series, and what's half-watched. */
