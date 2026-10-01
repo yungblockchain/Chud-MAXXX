@@ -1,6 +1,7 @@
 package com.m3u.tv.stremio
 
 import android.content.Context
+import android.net.Uri
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -17,6 +18,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,12 +46,23 @@ data class StremioUiState(
     val torrServe: String = "http://127.0.0.1:8090",
     val torrServeUp: Boolean? = null,
     val continueWatching: List<CatalogItem> = emptyList(),
+    val library: List<CatalogItem> = emptyList(),
+    val upNext: List<CatalogItem> = emptyList(),
+    val calendar: List<CatalogItem> = emptyList(),
+    val shelf: String = "home",
+    val inLibrary: Boolean = false,
+    val searchKind: String = "all",
+    val subtitles: List<StreamSource> = emptyList(),
+    val traktUser: String? = null,
+    val traktCode: String? = null,
+    val traktUrl: String? = null,
 )
 
 @HiltViewModel
 class StremioViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val store: StremioAddonStore,
+    private val shelfStore: InfinityShelf,
     private val secrets: SecretStore,
     private val channelDao: ChannelDao,
     private val playlistDao: PlaylistDao,
@@ -115,34 +128,17 @@ class StremioViewModel @Inject constructor(
                         }
                     }
                 }
-                val continued = runCatching {
-                    channelDao.getByPlaylistUrl(StremioIds.PLAYLIST_URL)
-                        .filter { it.seen > 0 && !it.relationId.isNullOrBlank() }
-                        .sortedByDescending { it.seen }
-                        .take(16)
-                        .mapNotNull { channel ->
-                            val relation = channel.relationId ?: return@mapNotNull null
-                            val type = relation.substringBefore(':')
-                            val id = relation.substringAfter(':', "")
-                            if (type.isBlank() || id.isBlank() || id == relation) return@mapNotNull null
-                            CatalogItem(
-                                id = id,
-                                type = type,
-                                name = channel.title,
-                                poster = channel.cover,
-                                background = null,
-                                posterShape = null,
-                                releaseInfo = null,
-                                imdbRating = null,
-                                description = null,
-                            )
-                        }
-                }.getOrDefault(emptyList())
+                val continued = runCatching { continueItems() }.getOrDefault(emptyList())
+                val shelves = runCatching { loadShelves() }.getOrDefault(ShelfBundle())
                 _state.update {
                     it.copy(
                         loading = false,
                         rows = rows,
-                        continueWatching = continued,
+                        continueWatching = mergePeople(shelves.playback, continued),
+                        library = mergePeople(shelves.watchlist, shelfStore.library()),
+                        upNext = shelves.upNext,
+                        calendar = shelves.calendar,
+                        traktUser = shelves.user ?: it.traktUser,
                         message = if (rows.isEmpty() && addons.isNotEmpty()) "Those addons didn't return a catalog." else null,
                     )
                 }
@@ -157,24 +153,32 @@ class StremioViewModel @Inject constructor(
     fun search(query: String) {
         val trimmed = query.trim()
         if (trimmed.length < 2) return
+        val kind = _state.value.searchKind
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, message = null, page = StremioPage.Browse) }
+            _state.update { it.copy(loading = true, message = null, page = StremioPage.Browse, shelf = "home") }
             val items = mutableListOf<CatalogItem>()
             for (addon in store.enabled()) {
-                items += runCatching { StremioClient.search(addon, trimmed) }.getOrDefault(emptyList())
+                val types: List<String?> = if (kind == "movie" || kind == "series") listOf(kind) else listOf(null)
+                for (type in types) {
+                    items += runCatching { StremioClient.search(addon, trimmed, type) }.getOrDefault(emptyList())
+                }
             }
             val unique = items.distinctBy { it.type to it.id }.take(40)
             _state.update {
                 it.copy(
                     loading = false,
                     rows = if (unique.isEmpty()) emptyList() else listOf(
-                        CatalogRow("search", "Search", "movie", "search", "Results for “$trimmed”", unique),
+                        CatalogRow("search", "Search", kind, "search", "Results for “$trimmed”", unique),
                     ),
                     message = if (unique.isEmpty()) "Nothing matched." else null,
                 )
             }
         }
     }
+
+    fun setSearchKind(kind: String) = _state.update { it.copy(searchKind = kind) }
+
+    fun setShelf(shelf: String) = _state.update { it.copy(shelf = shelf, page = StremioPage.Browse, message = null) }
 
     fun openAddons() = _state.update {
         it.copy(
@@ -217,6 +221,7 @@ class StremioViewModel @Inject constructor(
                 it.copy(
                     detailsLoading = false,
                     details = details,
+                    inLibrary = shelfStore.contains(details.type, details.id),
                     season = details.videos.mapNotNull { video -> video.season }.minOrNull(),
                 )
             }
@@ -231,8 +236,15 @@ class StremioViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(page = StremioPage.Streams, streamsLoading = true, streams = emptyList(), message = null) }
             val found = mutableListOf<StreamSource>()
-            for (addon in store.enabled().filter { "stream" in it.resources }) {
-                found += runCatching { StremioClient.streams(addon, type, id) }.getOrDefault(emptyList())
+            val subs = mutableListOf<StreamSource>()
+            for (addon in store.enabled()) {
+                if ("stream" in addon.resources) {
+                    found += runCatching { StremioClient.streams(addon, type, id) }.getOrDefault(emptyList())
+                }
+                if ("subtitles" in addon.resources) {
+                    subs += runCatching { StremioClient.streams(addon, type, id) }.getOrDefault(emptyList())
+                        .filter { it.url?.startsWith("http") == true }
+                }
             }
             val sorted = found.distinctBy { it.playableUrl to it.name }.sortedWith(
                 compareByDescending<StreamSource> { it.isDebrid }
@@ -243,6 +255,7 @@ class StremioViewModel @Inject constructor(
                 it.copy(
                     streamsLoading = false,
                     streams = sorted,
+                    subtitles = subs.distinctBy { it.url }.take(12),
                     message = if (sorted.isEmpty()) "No streams. Install Torrentio or AIOStreams, and add a debrid token if you have one." else null,
                 )
             }
@@ -266,6 +279,24 @@ class StremioViewModel @Inject constructor(
                 playerManager.play(MediaCommand.Url(channelId = id, url = resolved.url, title = playTitle))
                 resolved.via
             }.onSuccess { via ->
+                shelfStore.markWatched(playRelation)
+                val subUrl = _state.value.subtitles.firstOrNull { it.url?.startsWith("http") == true }?.url
+                val subName = _state.value.subtitles.firstOrNull { it.url == subUrl }?.name
+                if (subUrl != null) {
+                    runCatching {
+                        playerManager.addSubtitle(
+                            Uri.parse(subUrl),
+                            if (subUrl.endsWith(".srt", true)) "application/x-subrip" else "text/vtt",
+                            null,
+                            subName?.ifBlank { "Subtitles" } ?: "Subtitles",
+                        )
+                    }
+                }
+                val clientId = secrets.get(SecretName.TraktClientId)
+                val access = secrets.get(SecretName.TraktAccess)
+                if (clientId != null && access != null) {
+                    runCatching { TraktClient.scrobble(clientId, access, playRelation, start = true) }
+                }
                 _state.update { it.copy(resolving = null, message = "Playing with $via") }
                 onPlaying()
             }.onFailure { error ->
@@ -365,6 +396,180 @@ class StremioViewModel @Inject constructor(
         return true
     }
 
+    fun toggleLibrary() {
+        val details = _state.value.details ?: return
+        val item = details.toShelfItem()
+        val added = shelfStore.toggle(item)
+        _state.update {
+            it.copy(
+                inLibrary = added,
+                library = shelfStore.library(),
+                message = if (added) "Saved to your library" else "Removed from your library",
+            )
+        }
+    }
+
+    fun connectTrakt() {
+        val clientId = secrets.get(SecretName.TraktClientId)
+        val secret = secrets.get(SecretName.TraktClientSecret)
+        if (clientId.isNullOrBlank() || secret.isNullOrBlank()) {
+            _state.update { it.copy(message = "Add a Trakt client ID and secret in Settings → Services first.") }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val device = TraktClient.device(clientId)
+                _state.update {
+                    it.copy(
+                        traktCode = device.userCode,
+                        traktUrl = device.url,
+                        message = "Open ${device.url} and enter ${device.userCode}",
+                    )
+                }
+                val wait = device.intervalSeconds.coerceIn(5, 15) * 1000L
+                repeat(40) {
+                    delay(wait)
+                    val session = TraktClient.poll(clientId, secret, device.deviceCode) ?: return@repeat
+                    secrets.put(SecretName.TraktAccess, session.access)
+                    if (session.refresh.isNotBlank()) secrets.put(SecretName.TraktRefresh, session.refresh)
+                    val name = runCatching { TraktClient.username(clientId, session.access) }.getOrNull()
+                    _state.update { it.copy(traktUser = name ?: "Connected", traktCode = null, message = "Trakt connected") }
+                    refresh()
+                    return@launch
+                }
+                _state.update { it.copy(message = "Trakt didn't approve in time. Try Connect again.") }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _state.update { it.copy(message = error.message ?: "Trakt didn't connect") }
+            }
+        }
+    }
+
+    fun disconnectTrakt() {
+        secrets.remove(SecretName.TraktAccess)
+        secrets.remove(SecretName.TraktRefresh)
+        _state.update { it.copy(traktUser = null, traktCode = null, traktUrl = null, message = "Trakt disconnected") }
+        refresh()
+    }
+
+    private suspend fun continueItems(): List<CatalogItem> =
+        channelDao.getByPlaylistUrl(StremioIds.PLAYLIST_URL)
+            .filter { it.seen > 0 && !it.relationId.isNullOrBlank() }
+            .sortedByDescending { it.seen }
+            .take(16)
+            .mapNotNull { channel ->
+                val relation = channel.relationId ?: return@mapNotNull null
+                val type = relation.substringBefore(':')
+                val id = relation.substringAfter(':', "")
+                if (type.isBlank() || id.isBlank() || id == relation) return@mapNotNull null
+                CatalogItem(
+                    id = id,
+                    type = type,
+                    name = channel.title,
+                    poster = channel.cover,
+                    background = null,
+                    posterShape = null,
+                    releaseInfo = null,
+                    imdbRating = null,
+                    description = null,
+                )
+            }
+
+    private suspend fun loadShelves(): ShelfBundle {
+        val library = shelfStore.library()
+        val local = localSeries(library)
+        val clientId = secrets.get(SecretName.TraktClientId)
+        var access = secrets.get(SecretName.TraktAccess)
+        val refreshToken = secrets.get(SecretName.TraktRefresh)
+        val secret = secrets.get(SecretName.TraktClientSecret)
+        if (clientId != null && access == null && !refreshToken.isNullOrBlank() && !secret.isNullOrBlank()) {
+            access = runCatching { TraktClient.refresh(clientId, secret, refreshToken) }.getOrNull()?.also { session ->
+                secrets.put(SecretName.TraktAccess, session.access)
+                if (session.refresh.isNotBlank()) secrets.put(SecretName.TraktRefresh, session.refresh)
+            }?.access
+        }
+        if (clientId == null || access == null) {
+            return ShelfBundle(upNext = local.first, calendar = local.second)
+        }
+        val user = runCatching { TraktClient.username(clientId, access) }.getOrNull()
+        val watch = runCatching { TraktClient.watchlist(clientId, access) }.getOrDefault(emptyList())
+        val playing = runCatching { TraktClient.playback(clientId, access) }.getOrDefault(emptyList())
+        val upcoming = runCatching { TraktClient.upcoming(clientId, access, java.time.LocalDate.now().toString()) }
+            .getOrDefault(emptyList())
+        return ShelfBundle(
+            watchlist = watch,
+            playback = playing,
+            upNext = mergePeople(local.first, upcoming.take(8)),
+            calendar = if (upcoming.isNotEmpty()) upcoming else local.second,
+            user = user,
+        )
+    }
+
+    private suspend fun localSeries(library: List<CatalogItem>): Pair<List<CatalogItem>, List<CatalogItem>> {
+        val metaAddon = store.enabled().firstOrNull { "meta" in it.resources } ?: return emptyList<CatalogItem>() to emptyList()
+        val watched = shelfStore.watched()
+        val now = System.currentTimeMillis()
+        val horizon = now + 14L * 24 * 60 * 60 * 1000
+        val next = mutableListOf<CatalogItem>()
+        val calendar = mutableListOf<CatalogItem>()
+        for (item in library.filter { it.type == "series" }.take(5)) {
+            val details = runCatching { StremioClient.meta(metaAddon, "series", item.id) }.getOrNull() ?: continue
+            details.videos.forEach { video ->
+                val released = parseReleased(video.released) ?: return@forEach
+                if (released in now..horizon) calendar += video.asShelf(details.name)
+            }
+            val episode = details.videos
+                .filter { it.season != null && it.episode != null }
+                .sortedWith(compareBy({ it.season }, { it.episode }))
+                .firstOrNull { "series:${it.id}" !in watched }
+            if (episode != null) next += episode.asShelf(details.name)
+        }
+        return next to calendar.distinctBy { it.id }.take(16)
+    }
+
+    private fun mergePeople(primary: List<CatalogItem>, extra: List<CatalogItem>): List<CatalogItem> =
+        (primary + extra).distinctBy { it.type to it.id }.take(24)
+
+    private fun parseReleased(value: String?): Long? {
+        if (value.isNullOrBlank()) return null
+        return runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrNull()
+            ?: runCatching {
+                java.time.LocalDate.parse(value.take(10)).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+            }.getOrNull()
+    }
+
+    private fun MetaDetails.toShelfItem() = CatalogItem(
+        id = id,
+        type = type,
+        name = name,
+        poster = poster,
+        background = background,
+        posterShape = null,
+        releaseInfo = releaseInfo,
+        imdbRating = imdbRating,
+        description = description,
+    )
+
+    private fun MetaVideo.asShelf(show: String) = CatalogItem(
+        id = id,
+        type = "series",
+        name = listOf(show, shelfEpisode(this)).filter { it.isNotBlank() }.joinToString(" · "),
+        poster = thumbnail,
+        background = thumbnail,
+        posterShape = null,
+        releaseInfo = released?.take(10),
+        imdbRating = null,
+        description = overview,
+    )
+
+    private fun shelfEpisode(video: MetaVideo): String {
+        val season = video.season?.toString()?.padStart(2, '0')
+        val episode = video.episode?.toString()?.padStart(2, '0')
+        val code = if (season != null && episode != null) "S${season}E${episode}" else ""
+        return listOf(code, video.title).filter { it.isNotBlank() }.joinToString(" ")
+    }
+
     private suspend fun installAwait(url: String) {
         val trimmed = url.trim()
         if (!trimmed.startsWith("http")) {
@@ -433,3 +638,11 @@ class StremioViewModel @Inject constructor(
         else -> 1
     }
 }
+
+private data class ShelfBundle(
+    val watchlist: List<CatalogItem> = emptyList(),
+    val playback: List<CatalogItem> = emptyList(),
+    val upNext: List<CatalogItem> = emptyList(),
+    val calendar: List<CatalogItem> = emptyList(),
+    val user: String? = null,
+)

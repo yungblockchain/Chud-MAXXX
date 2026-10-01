@@ -87,6 +87,12 @@ private fun BrowsePage(
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     val first = FocusRequester()
+    val catalogRows = when (state.shelf) {
+        "library" -> oneRow("library", "Your library", state.library)
+        "upnext" -> oneRow("upnext", "Up next", state.upNext)
+        "calendar" -> oneRow("calendar", "Coming up", state.calendar)
+        else -> state.rows
+    }
     LazyColumn(
         contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 28.dp, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -138,69 +144,65 @@ private fun BrowsePage(
             }
         }
         item {
-            StatusLine("Infinity search only looks through addons. Live TV, films and series stay on the other search.")
-        }
-        state.continueWatching.takeIf { it.isNotEmpty() }?.let { continued ->
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Continue",
-                        color = TvColors.TextSecondary,
-                        fontFamily = TvFonts.Body,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 16.sp,
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                listOf("home" to "Home", "library" to "Library", "upnext" to "Up next", "calendar" to "Calendar").forEach { (id, label) ->
+                    TvActionButton(
+                        text = label,
+                        icon = Icons.Rounded.PlayArrow,
+                        selected = state.shelf == id,
+                        onClick = { viewModel.setShelf(id) },
                     )
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxWidth().clipToBounds(),
-                    ) {
-                        items(continued, key = { "continue:${it.type}:${it.id}" }) { item ->
-                            PosterCard(item) { viewModel.openItem(item) }
-                        }
-                    }
                 }
             }
         }
-        state.rows.firstOrNull()?.items?.firstOrNull()?.let { hero ->
-            item {
-                FocusFrame(
-                    onClick = { viewModel.openItem(hero) },
-                    semanticsLabel = hero.name,
-                    focusedScale = 1f,
-                    raiseOnFocus = false,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { focused ->
-                    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = hero.name,
-                            color = if (focused) TvColors.OnFocus else TvColors.TextPrimary,
-                            fontFamily = TvFonts.Accent,
-                            fontSize = 26.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        hero.description?.let { plot ->
-                            Text(
-                                text = plot,
-                                color = if (focused) TvColors.OnFocus else TvColors.TextSecondary,
-                                fontFamily = TvFonts.Body,
-                                fontSize = 15.sp,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                listOf("all" to "All", "movie" to "Films", "series" to "Series").forEach { (id, label) ->
+                    TvActionButton(
+                        text = label,
+                        icon = Icons.Rounded.Search,
+                        selected = state.searchKind == id,
+                        onClick = { viewModel.setSearchKind(id) },
+                    )
                 }
             }
+        }
+        item {
+            StatusLine(
+                buildString {
+                    append("Infinity search only looks through addons. ")
+                    state.traktUser?.let { append("Trakt · $it") }
+                },
+            )
+        }
+        if (state.shelf == "home") {
+            state.continueWatching.firstOrNull()?.let { hero ->
+                item { HeroCard(hero) { viewModel.openItem(hero) } }
+            }
+            item { ShelfRow("Continue", state.continueWatching, viewModel) }
+            item { ShelfRow("Library", state.library.take(16), viewModel) }
+            item { ShelfRow("Up next", state.upNext, viewModel) }
+            item { ShelfRow("Calendar", state.calendar, viewModel) }
         }
         state.message?.let { message -> item { StatusLine(message) } }
         if (state.loading) {
             item { StatusLine(stringResource(R.string.dial_addons_loading)) }
         }
-        if (!state.loading && state.rows.isEmpty() && state.addons.none { it.catalogs.isNotEmpty() }) {
+        if (!state.loading && catalogRows.isEmpty() && state.shelf == "home" && state.addons.none { it.catalogs.isNotEmpty() }) {
             item { StatusLine(stringResource(R.string.dial_addons_empty)) }
         }
-        items(state.rows, key = { "${it.addonId}:${it.type}:${it.catalogId}:${it.name}" }) { row ->
+        if (!state.loading && catalogRows.isEmpty() && state.shelf != "home") {
+            item {
+                StatusLine(
+                    when (state.shelf) {
+                        "library" -> "Nothing saved yet. Open a title and choose Library."
+                        "upnext" -> "Up next appears after you save a series, or when Trakt has something paused."
+                        else -> "Nothing on the calendar. Save a series, or connect Trakt."
+                    },
+                )
+            }
+        }
+        items(catalogRows, key = { "${it.addonId}:${it.type}:${it.catalogId}:${it.name}" }) { row ->
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = row.name,
@@ -291,12 +293,32 @@ private fun DetailsPage(state: StremioUiState, viewModel: StremioViewModel) {
                     details?.description?.let { plot ->
                         Text(text = plot, color = TvColors.TextSecondary, fontFamily = TvFonts.Body, fontSize = 16.sp, modifier = Modifier.widthIn(max = 760.dp))
                     }
-                    if (details != null && details.videos.isEmpty()) {
-                        TvActionButton(
-                            text = stringResource(R.string.dial_addons_play),
-                            icon = Icons.Rounded.PlayArrow,
-                            onClick = { viewModel.loadStreams(details.type, details.id, details.name) },
+                    details?.cast?.takeIf { it.isNotEmpty() }?.let { cast ->
+                        Text(
+                            text = cast.take(8).joinToString(", "),
+                            color = TvColors.TextSecondary,
+                            fontFamily = TvFonts.Body,
+                            fontSize = 15.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
+                    }
+                    if (details != null) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            TvActionButton(
+                                text = if (state.inLibrary) "In library" else "Library",
+                                icon = Icons.Rounded.CheckCircle,
+                                selected = state.inLibrary,
+                                onClick = viewModel::toggleLibrary,
+                            )
+                            if (details.videos.isEmpty()) {
+                                TvActionButton(
+                                    text = stringResource(R.string.dial_addons_play),
+                                    icon = Icons.Rounded.PlayArrow,
+                                    onClick = { viewModel.loadStreams(details.type, details.id, details.name) },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -376,6 +398,9 @@ private fun StreamsPage(state: StremioUiState, viewModel: StremioViewModel, onPl
         state.resolving?.let { name -> item { StatusLine(stringResource(R.string.dial_addons_resolving, name)) } }
         state.message?.let { message -> item { StatusLine(message) } }
         if (state.streamsLoading) item { StatusLine(stringResource(R.string.dial_addons_loading)) }
+        if (state.subtitles.isNotEmpty()) {
+            item { StatusLine("${state.subtitles.size} subtitle tracks. The first one turns on when this starts.") }
+        }
         items(state.streams, key = { "${it.addonId}:${it.name}:${it.playableUrl}" }) { source ->
             FocusFrame(
                 onClick = { viewModel.play(source, onPlaying) },
@@ -493,11 +518,38 @@ private fun AddonsPage(state: StremioUiState, viewModel: StremioViewModel) {
                         onClick = { viewModel.setEnabled(addon.id, !addon.enabled) },
                     )
                     TvActionButton(
+                        text = "Configure",
+                        icon = Icons.Rounded.Search,
+                        onClick = { manifest = addon.manifestUrl },
+                    )
+                    TvActionButton(
                         text = stringResource(R.string.dial_addons_remove),
                         icon = Icons.Rounded.Delete,
                         onClick = { viewModel.remove(addon.id) },
                     )
                 }
+            }
+        }
+        StatusLine("Trakt")
+        StatusLine(
+            when {
+                state.traktUser != null -> "Connected as ${state.traktUser}. Watchlist, up next and scrobbles follow this account."
+                state.traktCode != null -> "On ${state.traktUrl ?: "trakt.tv/activate"} enter ${state.traktCode}"
+                else -> "Add your Trakt client ID and secret under Settings → Services, then connect. Library stays on this Fire TV either way."
+            },
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TvActionButton(
+                text = if (state.traktUser == null) "Connect Trakt" else "Refresh Trakt",
+                icon = Icons.Rounded.CheckCircle,
+                onClick = viewModel::connectTrakt,
+            )
+            if (state.traktUser != null || state.traktCode != null) {
+                TvActionButton(
+                    text = "Disconnect",
+                    icon = Icons.Rounded.Delete,
+                    onClick = viewModel::disconnectTrakt,
+                )
             }
         }
         StatusLine(stringResource(R.string.dial_services_section_debrid))
@@ -573,4 +625,76 @@ private fun episodeLabel(video: MetaVideo): String {
     val episode = video.episode?.toString()?.padStart(2, '0')
     val code = if (season != null && episode != null) "S${season}E${episode}  " else ""
     return code + video.title
+}
+
+private fun oneRow(id: String, name: String, items: List<CatalogItem>): List<CatalogRow> =
+    if (items.isEmpty()) emptyList() else listOf(CatalogRow(id, name, "movie", id, name, items))
+
+@Composable
+private fun ShelfRow(title: String, items: List<CatalogItem>, viewModel: StremioViewModel) {
+    if (items.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = title,
+            color = TvColors.TextSecondary,
+            fontFamily = TvFonts.Body,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 16.sp,
+        )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth().clipToBounds(),
+        ) {
+            items(items, key = { "$title:${it.type}:${it.id}" }) { item ->
+                PosterCard(item) {
+                    val episode = item.type == "series" && item.id.count { char -> char == ':' } >= 2
+                    if (episode) viewModel.loadStreams("series", item.id, item.name) else viewModel.openItem(item)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeroCard(item: CatalogItem, onClick: () -> Unit) {
+    FocusFrame(
+        onClick = onClick,
+        semanticsLabel = item.name,
+        focusedScale = 1f,
+        raiseOnFocus = false,
+        modifier = Modifier.fillMaxWidth(),
+    ) { focused ->
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+        ) {
+            AsyncImage(
+                model = item.background ?: item.poster,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.width(220.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)),
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
+                Text(text = "Continue", color = if (focused) TvColors.OnFocus else TvColors.Focus, fontFamily = TvFonts.Body, fontSize = 14.sp)
+                Text(
+                    text = item.name,
+                    color = if (focused) TvColors.OnFocus else TvColors.TextPrimary,
+                    fontFamily = TvFonts.Accent,
+                    fontSize = 26.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                item.description?.let { plot ->
+                    Text(
+                        text = plot,
+                        color = if (focused) TvColors.OnFocus else TvColors.TextSecondary,
+                        fontFamily = TvFonts.Body,
+                        fontSize = 15.sp,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
 }

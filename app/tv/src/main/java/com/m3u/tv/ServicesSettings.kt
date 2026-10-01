@@ -183,6 +183,9 @@ fun ServicesSettingsScreen(
         item {
             KeyRow(SecretName.TraktClientId, R.string.dial_services_trakt, R.string.dial_services_trakt_hint)
         }
+        item {
+            KeyRow(SecretName.TraktClientSecret, R.string.dial_services_trakt_secret, R.string.dial_services_trakt_secret_hint)
+        }
         item { SettingsSection(stringResource(R.string.dial_services_section_debrid)) }
         item {
             KeyRow(SecretName.RealDebrid, R.string.dial_services_realdebrid, R.string.dial_services_realdebrid_hint)

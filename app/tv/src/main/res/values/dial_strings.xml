@@ -377,7 +377,9 @@
     <string name="dial_services_tmdb">TMDB API key</string>
     <string name="dial_services_tmdb_hint">API key (v3) or read access token from themoviedb.org</string>
     <string name="dial_services_trakt">Trakt client ID</string>
-    <string name="dial_services_trakt_hint">Client ID of an app you create at trakt.tv/oauth/applications</string>
+    <string name="dial_services_trakt_hint">Client ID of an app you create at trakt.tv/oauth/applications. Redirect URI can be urn:ietf:wg:oauth:2.0:oob.</string>
+    <string name="dial_services_trakt_secret">Trakt client secret</string>
+    <string name="dial_services_trakt_secret_hint">The secret from that same Trakt app. Infinity uses it for the device code, then syncs your watchlist, up next and scrobbles.</string>
     <string name="dial_services_section_markets">Markets and Telegram</string>
     <string name="dial_services_section_odds">Match odds</string>
     <string name="dial_services_sgo">SportsGameOdds key</string>
