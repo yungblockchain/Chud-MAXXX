@@ -1,3 +1,5 @@
+> **Follow-up:** versionCode **208**. Infinity has a continue row and a title you can open into seasons, episodes and streams. Its search still does not touch Xtream. Match Centre adds League One, League Two, the National League and the German 3. Liga from openfootball and OpenLigaDB, a StatsBomb shot map when that public archive has the match, team news when the live board has it, and followed clubs on Home. A SportsGameOdds key in Settings is used. The player shows Now and Next from the guide when the channel has one.
+
 > **Follow-up:** versionCode **207**. The side menu says Infinity. Its posters stay inside the page instead of drawing over the menu, and its search only hits addons. Back from a stream keeps playing in the corner, and the picture fills the window so the green gaps are gone. Match prices are fractions. Opening a fixture draws a pitch from the goals, cards and subs that feed actually has. A SportsGameOdds key can be saved under Settings, Services.
 
 > **Follow-up:** versionCode **206**. News is a side-menu tab after Match Centre. Categories (Football, Sport, World, Tech, Local, or any name you add) each keep their own RSS or Atom sources on the device. Starters are the publishers' feeds. A URL from RSSHub or RSS-Bridge can be added. Miniflux has no public keyless API, so the same feed address is pasted in.
@@ -7,7 +9,7 @@
 > **Follow-up, same day:** versionCode **204**. The Xtream account is built in, so a fresh install is already signed in. The side menu scrolls without jumping over the screen. Settings → Addons no longer uses the lazy list that crashed that page.
 
 > **This repository is Chud MAXXX**, a separate Fire TV app from earlier [CHUD STREAMS](https://github.com/yungblockchain/Chud-Streams).
-> On-screen name: **Chud MAXXX**. Application id: `app.dial.maxxx`. Version name: `MAXXX` (versionCode 207).
+> On-screen name: **Chud MAXXX**. Application id: `app.dial.maxxx`. Version name: `MAXXX` (versionCode 208).
 > It installs beside CHUD STREAMS (`app.dial.tv`) instead of replacing it. The extension permission is `app.dial.maxxx.permission.BIND_EXTENSION_HOST` for the same reason.
 > Earlier CHUD STREAMS is not changed by commits in this repo.
 > Build and install notes that still say CHUD STREAMS in [DIAL.md](DIAL.md) describe the shared Fire TV shell. Use the names in this block when they disagree.

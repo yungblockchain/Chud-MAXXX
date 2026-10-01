@@ -137,6 +137,62 @@ private fun BrowsePage(
                 }
             }
         }
+        item {
+            StatusLine("Infinity search only looks through addons. Live TV, films and series stay on the other search.")
+        }
+        state.continueWatching.takeIf { it.isNotEmpty() }?.let { continued ->
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Continue",
+                        color = TvColors.TextSecondary,
+                        fontFamily = TvFonts.Body,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth().clipToBounds(),
+                    ) {
+                        items(continued, key = { "continue:${it.type}:${it.id}" }) { item ->
+                            PosterCard(item) { viewModel.openItem(item) }
+                        }
+                    }
+                }
+            }
+        }
+        state.rows.firstOrNull()?.items?.firstOrNull()?.let { hero ->
+            item {
+                FocusFrame(
+                    onClick = { viewModel.openItem(hero) },
+                    semanticsLabel = hero.name,
+                    focusedScale = 1f,
+                    raiseOnFocus = false,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { focused ->
+                    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = hero.name,
+                            color = if (focused) TvColors.OnFocus else TvColors.TextPrimary,
+                            fontFamily = TvFonts.Accent,
+                            fontSize = 26.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        hero.description?.let { plot ->
+                            Text(
+                                text = plot,
+                                color = if (focused) TvColors.OnFocus else TvColors.TextSecondary,
+                                fontFamily = TvFonts.Body,
+                                fontSize = 15.sp,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        }
         state.message?.let { message -> item { StatusLine(message) } }
         if (state.loading) {
             item { StatusLine(stringResource(R.string.dial_addons_loading)) }

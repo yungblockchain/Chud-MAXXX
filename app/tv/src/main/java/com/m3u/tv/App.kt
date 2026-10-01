@@ -158,6 +158,7 @@ fun App(
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
     val reconnecting by viewModel.reconnecting.collectAsStateWithLifecycle()
     val playbackFailed by viewModel.playbackFailed.collectAsStateWithLifecycle()
+    val guideLine by viewModel.guideLine.collectAsStateWithLifecycle()
     val remoteControlCode by viewModel.remoteControlCode.collectAsStateWithLifecycle()
     val view = LocalView.current
     val localeTag = LocalConfiguration.current.locales[0].toLanguageTag()
@@ -267,6 +268,9 @@ fun App(
             DialStartup.Guide -> destination = TvDestination.Guide
             DialStartup.LastChannel -> if (dial.playLastChannel()) surface = TvSurface.Player
         }
+    }
+    LaunchedEffect(playingId) {
+        viewModel.refreshGuide(currentChannel)
     }
     LaunchedEffect(playingId, live, playingPlaylist != null) {
         if (playingId != null && live && playingPlaylist != null) dial.rememberLastChannel(playingId)
@@ -844,6 +848,7 @@ fun App(
                 playbackState = playbackState,
                 reconnecting = reconnecting,
                 failed = playbackFailed,
+                guideLine = guideLine,
                 preferences = preferences,
                 subtitleTarget = nowPlaying?.subtitleTarget,
                 onUpdatePreferences = dial::updatePreferences,

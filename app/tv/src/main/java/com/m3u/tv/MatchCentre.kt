@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -79,9 +80,14 @@ private val MATCH_LEAGUES = listOf(
     "uefa.champions" to "Champions League",
     "uefa.europa" to "Europa League",
     "eng.2" to "Championship",
+    "eng.2b" to "Championship fixtures",
+    "eng.3" to "League One",
+    "eng.4" to "League Two",
+    "eng.5" to "National League",
     "usa.1" to "MLS",
     "ned.1" to "Eredivisie",
     "por.1" to "Primeira Liga",
+    "ger.3" to "3. Liga",
 )
 
 private enum class MatchFilter { Live, Upcoming, Results }
@@ -140,6 +146,7 @@ private data class MatchDetail(
     val stats: List<MatchStat>,
     val events: List<String>,
     val odds: MatchOdds?,
+    val injuries: List<String> = emptyList(),
 )
 
 @Composable
@@ -158,13 +165,40 @@ fun MatchCentreScreen(
     var detailLoading by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
     var watchNote by remember { mutableStateOf<String?>(null) }
+    var shots by remember { mutableStateOf<List<FootballFeeds.Shot>>(emptyList()) }
+    var followed by remember { mutableStateOf(loadFollowed(LocalContext.current)) }
+    val extras = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel<MatchExtrasViewModel>()
     val slips = rememberPaperSlips()
 
     LaunchedEffect(reload) {
         loading = true
         error = null
         val loaded = runCatching { MatchFeed.loadAll() }
-        loaded.onSuccess { fixtures = it }.onFailure { error = it.message ?: "Scores didn't load" }
+        loaded.onSuccess { board ->
+            fixtures = board
+            val key = extras.oddsKey()
+            if (!key.isNullOrBlank()) {
+                val prices = runCatching { FootballFeeds.prices(key) }.getOrDefault(emptyList())
+                if (prices.isNotEmpty()) {
+                    fixtures = board.map { fixture ->
+                        val price = prices.firstOrNull {
+                            FootballFeeds.sameClub(it.home, fixture.home.name) &&
+                                FootballFeeds.sameClub(it.away, fixture.away.name)
+                        } ?: return@map fixture
+                        fixture.copy(
+                            odds = MatchOdds(
+                                home = price.homeOdds ?: fixture.odds?.home,
+                                draw = price.drawOdds ?: fixture.odds?.draw,
+                                away = price.awayOdds ?: fixture.odds?.away,
+                                total = fixture.odds?.total,
+                                provider = "SportsGameOdds",
+                                details = fixture.odds?.details,
+                            ),
+                        )
+                    }
+                }
+            }
+        }.onFailure { error = it.message ?: "Scores didn't load" }
         loading = false
     }
 
@@ -175,7 +209,22 @@ fun MatchCentreScreen(
             return@LaunchedEffect
         }
         detailLoading = true
+        if (fixture.id.startsWith("of-") || fixture.id.startsWith("ol-")) {
+            detail = MatchDetail(
+                headline = fixture.detail,
+                homeXi = emptyList(),
+                awayXi = emptyList(),
+                note = "This row is from openfootball or OpenLigaDB, not the live scoreboard.",
+                stats = emptyList(),
+                events = emptyList(),
+                odds = fixture.odds,
+            )
+            shots = emptyList()
+            detailLoading = false
+            return@LaunchedEffect
+        }
         detail = runCatching { MatchFeed.loadDetail(fixture) }.getOrNull()
+        shots = runCatching { FootballFeeds.shots(fixture.home.name, fixture.away.name) }.getOrDefault(emptyList())
         detailLoading = false
     }
 
@@ -191,12 +240,19 @@ fun MatchCentreScreen(
         }
 
     if (selected != null) {
+        val fixture = selected!!
+        val context = LocalContext.current
         MatchDetailPage(
-            fixture = selected!!,
+            fixture = fixture,
             detail = detail,
             loading = detailLoading,
             note = watchNote,
             slips = slips.lines,
+            followed = fixture.home.name in followed || fixture.away.name in followed,
+            shots = shots,
+            onFollow = {
+                followed = toggleFollow(context, fixture.home.name, followed)
+            },
             onBack = { selected = null },
             onWatch = {
                 watchNote = "Looking through your channels…"
@@ -329,6 +385,9 @@ private fun MatchDetailPage(
     loading: Boolean,
     note: String?,
     slips: List<String>,
+    followed: Boolean,
+    shots: List<FootballFeeds.Shot>,
+    onFollow: () -> Unit,
     onBack: () -> Unit,
     onWatch: () -> Unit,
     onSlip: (selection: String, price: String?) -> Unit,
@@ -367,6 +426,16 @@ private fun MatchDetailPage(
                 home = fixture.home.name,
                 away = fixture.away.name,
                 events = detail?.events.orEmpty(),
+                homeXi = detail?.homeXi.orEmpty(),
+                awayXi = detail?.awayXi.orEmpty(),
+                shots = shots,
+            )
+        }
+        item {
+            TvActionButton(
+                text = if (followed) "Following ${fixture.home.name}" else "Follow ${fixture.home.name}",
+                icon = Icons.Rounded.SportsSoccer,
+                onClick = onFollow,
             )
         }
         item {
@@ -434,6 +503,20 @@ private fun MatchDetailPage(
         if (loading) {
             item { Status("Loading stats and lineups…") }
         } else {
+            if (detail?.injuries?.isNotEmpty() == true) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Team news",
+                            color = TvColors.TextPrimary,
+                            fontFamily = TvFonts.Body,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                        )
+                        detail.injuries.forEach { line -> Status(line) }
+                    }
+                }
+            }
             if (detail?.events?.isNotEmpty() == true) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
@@ -509,7 +592,14 @@ private fun gcd(a: Int, b: Int): Int {
 }
 
 @Composable
-private fun PitchBoard(home: String, away: String, events: List<String>) {
+private fun PitchBoard(
+    home: String,
+    away: String,
+    events: List<String>,
+    homeXi: List<LineupPlayer>,
+    awayXi: List<LineupPlayer>,
+    shots: List<FootballFeeds.Shot>,
+) {
     val pulse = rememberInfiniteTransition(label = "pitch")
     val phase by pulse.animateFloat(
         initialValue = 0f,
@@ -526,10 +616,10 @@ private fun PitchBoard(home: String, away: String, events: List<String>) {
             fontSize = 18.sp,
         )
         Text(
-            text = if (events.isEmpty()) {
-                "No ball-tracking feed. Markers appear when this match reports a goal, card or sub."
-            } else {
-                "Goals, cards and subs from the live board. Not a Sportsradar tracker."
+            text = when {
+                shots.isNotEmpty() -> "Shot map from StatsBomb's public archive for this fixture. Live ball-tracking is not in that set."
+                events.isEmpty() -> "No ball-tracking feed. Markers appear when this match reports a goal, card or sub."
+                else -> "Goals, cards and subs from the live board. Not a Sportsradar tracker."
             },
             color = TvColors.TextSecondary,
             fontFamily = TvFonts.Body,
@@ -549,6 +639,35 @@ private fun PitchBoard(home: String, away: String, events: List<String>) {
             drawRect(line, origin, pitch, style = Stroke(width = 2.dp.toPx()))
             drawLine(line, Offset(size.width / 2, origin.y), Offset(size.width / 2, origin.y + pitch.height), strokeWidth = 2.dp.toPx())
             drawCircle(line, radius = pitch.height * 0.16f, center = Offset(size.width / 2, size.height / 2), style = Stroke(width = 2.dp.toPx()))
+            fun DrawScope.row(players: List<LineupPlayer>, attackingRight: Boolean) {
+                val groups = listOf("G", "D", "M", "F")
+                groups.forEachIndexed { band, code ->
+                    val linePlayers = players.filter { it.position?.startsWith(code) == true }.ifEmpty {
+                        if (code == "M") players.filter { it.position == null } else emptyList()
+                    }
+                    linePlayers.forEachIndexed { index, _ ->
+                        val along = (band + 1f) / (groups.size + 1f)
+                        val xFrac = if (attackingRight) along else 1f - along
+                        val yFrac = (index + 1f) / (linePlayers.size + 1f)
+                        drawCircle(
+                            Color.White.copy(alpha = 0.9f),
+                            radius = 6.dp.toPx(),
+                            center = Offset(origin.x + pitch.width * xFrac, origin.y + pitch.height * yFrac),
+                        )
+                    }
+                }
+            }
+            if (homeXi.isNotEmpty()) row(homeXi, attackingRight = false)
+            if (awayXi.isNotEmpty()) row(awayXi, attackingRight = true)
+            shots.forEach { shot ->
+                val x = if (shot.home) shot.x / 120f else 1f - shot.x / 120f
+                val y = shot.y / 80f
+                drawCircle(
+                    if (shot.goal) Color(0xFF3DFF9A) else Color.White.copy(alpha = 0.75f),
+                    radius = if (shot.goal) 6.dp.toPx() else 3.5.dp.toPx(),
+                    center = Offset(origin.x + pitch.width * x, origin.y + pitch.height * y),
+                )
+            }
             val marks = events.take(12)
             marks.forEachIndexed { index, event ->
                 val lower = event.lowercase()
@@ -630,11 +749,43 @@ private fun rememberPaperSlips(): PaperSlips {
 
 private object MatchFeed {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private var cached: List<Fixture> = emptyList()
+    private var cachedAt = 0L
 
-    suspend fun loadAll(): List<Fixture> = coroutineScope {
-        MATCH_LEAGUES.map { (id, name) ->
+    suspend fun loadAll(): List<Fixture> {
+        val now = System.currentTimeMillis()
+        if (cached.isNotEmpty() && now - cachedAt < 120_000) return cached
+        val loaded = loadAllFresh()
+        if (loaded.isNotEmpty()) {
+            cached = loaded
+            cachedAt = now
+        }
+        return loaded
+    }
+
+    private suspend fun loadAllFresh(): List<Fixture> = coroutineScope {
+        val espnIds = setOf(
+            "eng.1", "esp.1", "ger.1", "ita.1", "fra.1", "uefa.champions", "uefa.europa",
+            "eng.2", "usa.1", "ned.1", "por.1",
+        )
+        val espn = MATCH_LEAGUES.filter { it.first in espnIds }.map { (id, name) ->
             async { runCatching { scoreboard(id, name) }.getOrDefault(emptyList()) }
         }.awaitAll().flatten()
+        val extra = runCatching { FootballFeeds.extras() }.getOrDefault(emptyList()).map { row ->
+            Fixture(
+                id = row.id,
+                leagueId = row.leagueId,
+                league = row.league,
+                home = FixtureSide(row.home, row.homeScore),
+                away = FixtureSide(row.away, row.awayScore),
+                state = row.state,
+                detail = row.detail,
+                venue = null,
+                start = null,
+                odds = null,
+            )
+        }
+        espn + extra
     }
 
     suspend fun loadDetail(fixture: Fixture): MatchDetail = withContext(Dispatchers.IO) {
@@ -674,6 +825,7 @@ private object MatchFeed {
             stats = readStats(root),
             events = readEvents(root),
             odds = header?.let(::readOdds) ?: fixture.odds,
+            injuries = readInjuries(root),
         )
     }
 
@@ -780,6 +932,20 @@ private fun americanToDecimal(raw: String?): String? {
     return String.format(Locale.US, "%.2f", dec)
 }
 
+private fun readInjuries(root: JsonObject): List<String> {
+    val rows = root["injuries"]?.asArray().orEmpty()
+    return rows.flatMap { element ->
+        val side = element.asObject() ?: return@flatMap emptyList()
+        val team = side["team"]?.asObject()?.text("displayName").orEmpty()
+        side["injuries"]?.asArray().orEmpty().mapNotNull { item ->
+            val injury = item.asObject() ?: return@mapNotNull null
+            val name = injury["athlete"]?.asObject()?.text("displayName") ?: return@mapNotNull null
+            val status = injury.text("status") ?: injury["type"]?.asObject()?.text("description")
+            listOfNotNull(team.takeIf { it.isNotBlank() }, name, status).joinToString("  ")
+        }
+    }.take(16)
+}
+
 private fun readEvents(root: JsonObject): List<String> {
     val source = root["keyEvents"]?.asArray() ?: root["plays"]?.asArray() ?: return emptyList()
     return source.mapNotNull { element ->
@@ -820,3 +986,36 @@ private fun kotlinx.serialization.json.JsonElement.asArray(): JsonArray? = this 
 private fun kotlinx.serialization.json.JsonElement.textValue(): String? =
     (this as? JsonPrimitive)?.contentOrNull
 private fun JsonObject.text(name: String): String? = this[name]?.textValue()?.takeIf { it.isNotBlank() && it != "null" }
+
+/** Home row for clubs followed from a fixture. */
+@Composable
+fun FollowedClubsRow() {
+    val context = LocalContext.current
+    val names = remember { loadFollowed(context) }
+    var lines by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(names) {
+        if (names.isEmpty()) return@LaunchedEffect
+        val board = runCatching { MatchFeed.loadAll() }.getOrDefault(emptyList())
+        lines = board.filter { fixture ->
+            names.any { club ->
+                FootballFeeds.sameClub(club, fixture.home.name) || FootballFeeds.sameClub(club, fixture.away.name)
+            }
+        }.take(6).map { fixture ->
+            val score = listOfNotNull(fixture.home.score, fixture.away.score)
+            val middle = if (score.size == 2) score.joinToString("-") else "v"
+            "${fixture.home.name}  $middle  ${fixture.away.name}   ·   ${fixture.league}"
+        }
+    }
+    if (lines.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Followed clubs",
+            color = TvColors.TextPrimary,
+            fontFamily = TvFonts.Body,
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp,
+        )
+        lines.forEach { line -> Status(line) }
+    }
+}
+

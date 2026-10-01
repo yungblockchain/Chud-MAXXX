@@ -24,6 +24,7 @@ import com.m3u.data.repository.extension.ExtensionSettingUpdateResult
 import com.m3u.data.repository.extension.ExtensionSettingsConfiguration
 import com.m3u.data.repository.extension.ExtensionSettingsRepository
 import com.m3u.data.repository.playlist.PlaylistRepository
+import com.m3u.data.repository.programme.ProgrammeRepository
 import com.m3u.data.repository.plugin.ExtensionPluginRepository
 import com.m3u.data.repository.plugin.InstalledPlugin
 import com.m3u.data.repository.plugin.PluginAuthorizationToken
@@ -132,6 +133,7 @@ class TvHomeViewModel @Inject constructor(
     private val subscriptionProviderRepository: SubscriptionProviderRepository,
     private val settings: Settings,
     private val dialStore: DialSettingsStore,
+    private val programmes: ProgrammeRepository,
     tvRepository: TvRepository,
     dPadReactionService: DPadReactionService
 ) : ViewModel() {
@@ -149,6 +151,34 @@ class TvHomeViewModel @Inject constructor(
     val extensionDiagnostics = _extensionDiagnostics.asSharedFlow()
 
     val player: StateFlow<Player?> = playerManager.player
+
+    private val _guideLine = MutableStateFlow<String?>(null)
+    val guideLine: StateFlow<String?> = _guideLine.asStateFlow()
+
+    fun refreshGuide(channel: Channel?) {
+        viewModelScope.launch {
+            if (channel == null) {
+                _guideLine.value = null
+                return@launch
+            }
+            val now = runCatching { programmes.getProgrammeCurrently(channel.id) }.getOrNull()
+            val relation = channel.relationId
+            val next = if (relation.isNullOrBlank()) {
+                null
+            } else {
+                val from = System.currentTimeMillis()
+                runCatching {
+                    programmes.getProgrammesInRange(channel.playlistUrl, relation, from, from + 8 * 3_600_000L)
+                }.getOrDefault(emptyList())
+                    .filter { programme -> now == null || programme.start >= now.end }
+                    .minByOrNull { it.start }
+            }
+            _guideLine.value = listOfNotNull(
+                now?.title?.takeIf { it.isNotBlank() }?.let { "Now  $it" },
+                next?.title?.takeIf { it.isNotBlank() }?.let { "Next  $it" },
+            ).joinToString("    ·    ").ifBlank { null }
+        }
+    }
     val currentChannel: StateFlow<Channel?> = playerManager.channel
     val isPlaying: StateFlow<Boolean> = playerManager.isPlaying
     val playbackState: StateFlow<Int> = playerManager.playbackState
@@ -1161,10 +1191,14 @@ internal object FixtureChannelFinder {
         if (title.contains(" vs ") || title.contains(" v ") || title.contains(" x ")) points += 4
         if (homeHit && awayHit && (
                 title.contains("sport") || title.contains("sky") || title.contains("tnt") ||
-                    title.contains("dazn") || title.contains("espn") || title.contains("bein")
+                    title.contains("dazn") || title.contains("espn") || title.contains("bein") ||
+                    title.contains("premier") || title.contains("laliga") || title.contains("bt ")
                 )
         ) {
             points += 12
+        }
+        if (title.contains("radio") || title.contains("news") || title.contains("highlight") || title.contains("replay")) {
+            points -= 20
         }
         return points
     }

@@ -512,6 +512,9 @@ private fun HomeScreen(
                 }
             }
         }
+        item(key = "followed-clubs") {
+            FollowedClubsRow()
+        }
         // Straight into Live TV, Films or Series.
         item(key = "doors") {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

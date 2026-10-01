@@ -126,6 +126,7 @@ fun TvPlayerScreen(
     playbackState: Int,
     reconnecting: Boolean,
     failed: Boolean,
+    guideLine: String? = null,
     preferences: DialPreferences,
     subtitleTarget: SubtitleTarget?,
     onUpdatePreferences: ((DialPreferences) -> DialPreferences) -> Unit,
@@ -455,6 +456,7 @@ fun TvPlayerScreen(
                     channelNumber = channelNumber.takeIf { live },
                     playbackState = playbackState,
                     notice = stateNotice,
+                    guideLine = guideLine,
                 )
                 if (!live && duration > 0L) {
                     ProgressLine(
@@ -632,6 +634,7 @@ private fun NowPlaying(
     channelNumber: Int?,
     playbackState: Int,
     notice: String?,
+    guideLine: String?,
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -667,6 +670,16 @@ private fun NowPlaying(
                     fontFamily = TvFonts.Body,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+            }
+            guideLine?.let { line ->
+                Text(
+                    text = line,
+                    color = TvColors.TextSecondary,
+                    fontSize = 15.sp,
+                    fontFamily = TvFonts.Body,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

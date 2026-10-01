@@ -43,6 +43,7 @@ data class StremioUiState(
     val p2p: Boolean = true,
     val torrServe: String = "http://127.0.0.1:8090",
     val torrServeUp: Boolean? = null,
+    val continueWatching: List<CatalogItem> = emptyList(),
 )
 
 @HiltViewModel
@@ -114,10 +115,34 @@ class StremioViewModel @Inject constructor(
                         }
                     }
                 }
+                val continued = runCatching {
+                    channelDao.getByPlaylistUrl(StremioIds.PLAYLIST_URL)
+                        .filter { it.seen > 0 && !it.relationId.isNullOrBlank() }
+                        .sortedByDescending { it.seen }
+                        .take(16)
+                        .mapNotNull { channel ->
+                            val relation = channel.relationId ?: return@mapNotNull null
+                            val type = relation.substringBefore(':')
+                            val id = relation.substringAfter(':', "")
+                            if (type.isBlank() || id.isBlank() || id == relation) return@mapNotNull null
+                            CatalogItem(
+                                id = id,
+                                type = type,
+                                name = channel.title,
+                                poster = channel.cover,
+                                background = null,
+                                posterShape = null,
+                                releaseInfo = null,
+                                imdbRating = null,
+                                description = null,
+                            )
+                        }
+                }.getOrDefault(emptyList())
                 _state.update {
                     it.copy(
                         loading = false,
                         rows = rows,
+                        continueWatching = continued,
                         message = if (rows.isEmpty() && addons.isNotEmpty()) "Those addons didn't return a catalog." else null,
                     )
                 }
