@@ -165,8 +165,9 @@ fun MatchCentreScreen(
     var detailLoading by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
     var watchNote by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
     var shots by remember { mutableStateOf<List<FootballFeeds.Shot>>(emptyList()) }
-    var followed by remember { mutableStateOf(loadFollowed(LocalContext.current)) }
+    var followed by remember { mutableStateOf(loadFollowed(context)) }
     val extras = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel<MatchExtrasViewModel>()
     val slips = rememberPaperSlips()
 
