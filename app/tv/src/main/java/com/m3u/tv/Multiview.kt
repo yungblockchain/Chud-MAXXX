@@ -534,6 +534,12 @@ fun MiniPlayer(
                 surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
                 modifier = Modifier.fillMaxSize(),
             )
+            LaunchedEffect(player) {
+                (player as? ExoPlayer)?.videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+                if (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING) {
+                    player.play()
+                }
+            }
         }
         Text(
             text = channel?.title?.title().orEmpty(),

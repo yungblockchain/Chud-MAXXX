@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
@@ -89,7 +90,7 @@ private fun BrowsePage(
     LazyColumn(
         contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 28.dp, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().clipToBounds(),
     ) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -152,7 +153,10 @@ private fun BrowsePage(
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 16.sp,
                 )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth().clipToBounds(),
+                ) {
                     items(row.items, key = { "${row.catalogId}:${it.type}:${it.id}" }) { item ->
                         PosterCard(item) { viewModel.openItem(item) }
                     }
@@ -169,6 +173,8 @@ private fun PosterCard(item: CatalogItem, onClick: () -> Unit) {
             onClick = onClick,
             shape = RoundedCornerShape(8.dp),
             semanticsLabel = item.name,
+            focusedScale = 1f,
+            raiseOnFocus = false,
             modifier = Modifier.fillMaxWidth(),
         ) {
             AsyncImage(
@@ -198,7 +204,7 @@ private fun DetailsPage(state: StremioUiState, viewModel: StremioViewModel) {
     LazyColumn(
         contentPadding = PaddingValues(start = 48.dp, end = 64.dp, top = 28.dp, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().clipToBounds(),
     ) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
@@ -301,7 +307,7 @@ private fun StreamsPage(state: StremioUiState, viewModel: StremioViewModel, onPl
     LazyColumn(
         contentPadding = PaddingValues(start = 48.dp, end = 64.dp, top = 28.dp, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().clipToBounds(),
     ) {
         item {
             Text(

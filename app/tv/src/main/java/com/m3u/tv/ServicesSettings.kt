@@ -192,6 +192,10 @@ fun ServicesSettingsScreen(
         }
 
         item { SettingsSection(stringResource(R.string.dial_services_section_markets)) }
+        item { SettingsSection(stringResource(R.string.dial_services_section_odds)) }
+        item {
+            KeyRow(SecretName.SportsGameOdds, R.string.dial_services_sgo, R.string.dial_services_sgo_hint)
+        }
         item {
             KeyRow(SecretName.CoinMarketCap, R.string.dial_services_cmc, R.string.dial_services_cmc_hint)
         }

@@ -210,6 +210,7 @@ fun TvNavigationRail(
     val menuScroll = rememberScrollState()
     Box(
         modifier = modifier
+            .zIndex(8f)
             .fillMaxHeight()
             .width(width)
             .clipToBounds()

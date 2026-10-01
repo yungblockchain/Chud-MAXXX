@@ -1,11 +1,13 @@
 package com.m3u.tv
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,6 +23,12 @@ import androidx.compose.ui.platform.LocalContext
 import android.content.Context
 import java.util.Locale
 import kotlinx.serialization.json.JsonPrimitive
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +39,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -88,9 +100,9 @@ private data class MatchOdds(
 ) {
     fun line(): String {
         val bits = buildList {
-            home?.let { add("1 $it") }
-            draw?.let { add("X $it") }
-            away?.let { add("2 $it") }
+            fractional(home)?.let { add("1 $it") }
+            fractional(draw)?.let { add("X $it") }
+            fractional(away)?.let { add("2 $it") }
             total?.let { add("O/U $it") }
         }
         if (bits.isEmpty()) return details?.takeIf { it.isNotBlank() }.orEmpty()
@@ -351,6 +363,13 @@ private fun MatchDetailPage(
             )
         }
         item {
+            PitchBoard(
+                home = fixture.home.name,
+                away = fixture.away.name,
+                events = detail?.events.orEmpty(),
+            )
+        }
+        item {
             val prices = odds?.line().orEmpty()
             Text(
                 text = if (prices.isBlank()) "No odds posted for this fixture." else prices,
@@ -380,17 +399,17 @@ private fun MatchDetailPage(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     TvActionButton(
-                        text = odds?.home?.let { "Home $it" } ?: "Home",
+                        text = odds?.home?.let { "Home ${fractional(it)}" } ?: "Home",
                         icon = Icons.Rounded.Paid,
                         onClick = { onSlip(fixture.home.name, odds?.home) },
                     )
                     TvActionButton(
-                        text = odds?.draw?.let { "Draw $it" } ?: "Draw",
+                        text = odds?.draw?.let { "Draw ${fractional(it)}" } ?: "Draw",
                         icon = Icons.Rounded.Paid,
                         onClick = { onSlip("Draw", odds?.draw) },
                     )
                     TvActionButton(
-                        text = odds?.away?.let { "Away $it" } ?: "Away",
+                        text = odds?.away?.let { "Away ${fractional(it)}" } ?: "Away",
                         icon = Icons.Rounded.Paid,
                         onClick = { onSlip(fixture.away.name, odds?.away) },
                     )
@@ -450,6 +469,102 @@ private fun MatchDetailPage(
             } else {
                 item { LineupBlock(fixture.home.name, detail.homeXi) }
                 item { LineupBlock(fixture.away.name, detail.awayXi) }
+            }
+        }
+    }
+}
+
+/** Decimal price (2.50) as a fraction (3/2). Already-fractional text is left alone. */
+private fun fractional(raw: String?): String? {
+    if (raw.isNullOrBlank()) return null
+    if (raw.contains('/')) return raw
+    val dec = raw.toDoubleOrNull() ?: return raw
+    if (dec <= 1.01) return raw
+    val target = dec - 1.0
+    var bestN = 1
+    var bestD = 1
+    var bestErr = Double.MAX_VALUE
+    for (d in 1..24) {
+        val n = kotlin.math.round(target * d).toInt().coerceAtLeast(1)
+        val err = kotlin.math.abs(target - n.toDouble() / d)
+        if (err < bestErr - 0.0001 || (kotlin.math.abs(err - bestErr) < 0.0001 && d < bestD)) {
+            bestErr = err
+            bestN = n
+            bestD = d
+        }
+    }
+    val g = gcd(bestN, bestD)
+    return "${bestN / g}/${bestD / g}"
+}
+
+private fun gcd(a: Int, b: Int): Int {
+    var x = kotlin.math.abs(a)
+    var y = kotlin.math.abs(b)
+    while (y != 0) {
+        val t = x % y
+        x = y
+        y = t
+    }
+    return x.coerceAtLeast(1)
+}
+
+@Composable
+private fun PitchBoard(home: String, away: String, events: List<String>) {
+    val pulse = rememberInfiniteTransition(label = "pitch")
+    val phase by pulse.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Restart),
+        label = "pitch-phase",
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Pitch",
+            color = TvColors.TextPrimary,
+            fontFamily = TvFonts.Body,
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp,
+        )
+        Text(
+            text = if (events.isEmpty()) {
+                "No ball-tracking feed. Markers appear when this match reports a goal, card or sub."
+            } else {
+                "Goals, cards and subs from the live board. Not a Sportsradar tracker."
+            },
+            color = TvColors.TextSecondary,
+            fontFamily = TvFonts.Body,
+            fontSize = 14.sp,
+        )
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(280.dp),
+        ) {
+            val grass = Color(0xFF1B6B3A)
+            val line = Color.White.copy(alpha = 0.85f)
+            drawRect(grass, size = size)
+            val inset = 16.dp.toPx()
+            val pitch = Size(size.width - inset * 2, size.height - inset * 2)
+            val origin = Offset(inset, inset)
+            drawRect(line, origin, pitch, style = Stroke(width = 2.dp.toPx()))
+            drawLine(line, Offset(size.width / 2, origin.y), Offset(size.width / 2, origin.y + pitch.height), strokeWidth = 2.dp.toPx())
+            drawCircle(line, radius = pitch.height * 0.16f, center = Offset(size.width / 2, size.height / 2), style = Stroke(width = 2.dp.toPx()))
+            val marks = events.take(12)
+            marks.forEachIndexed { index, event ->
+                val lower = event.lowercase()
+                val homeSide = lower.contains(home.lowercase().take(6)) || index % 2 == 0 && !lower.contains(away.lowercase().take(6))
+                val xFrac = if (homeSide) 0.18f + (index % 4) * 0.07f else 0.82f - (index % 4) * 0.07f
+                val yFrac = 0.18f + (index % 6) * 0.12f
+                val bob = if (index == marks.lastIndex) kotlin.math.sin(phase * Math.PI * 2).toFloat() * 8.dp.toPx() else 0f
+                val at = Offset(origin.x + pitch.width * xFrac, origin.y + pitch.height * yFrac + bob)
+                val color = when {
+                    lower.contains("goal") -> Color(0xFF3DFF9A)
+                    lower.contains("card") || lower.contains("yellow") -> Color(0xFFFFD24A)
+                    lower.contains("red") -> Color(0xFFFF4D6A)
+                    lower.contains("sub") -> Color(0xFF7AD7FF)
+                    else -> Color.White
+                }
+                drawCircle(color, radius = 8.dp.toPx(), center = at)
             }
         }
     }

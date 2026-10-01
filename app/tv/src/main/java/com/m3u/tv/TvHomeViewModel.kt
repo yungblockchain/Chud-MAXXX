@@ -1159,6 +1159,13 @@ internal object FixtureChannelFinder {
         if (awayHit) points += 10
         if (homeHit && awayHit) points += 30
         if (title.contains(" vs ") || title.contains(" v ") || title.contains(" x ")) points += 4
+        if (homeHit && awayHit && (
+                title.contains("sport") || title.contains("sky") || title.contains("tnt") ||
+                    title.contains("dazn") || title.contains("espn") || title.contains("bein")
+                )
+        ) {
+            points += 12
+        }
         return points
     }
 

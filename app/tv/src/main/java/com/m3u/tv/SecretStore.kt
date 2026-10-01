@@ -29,6 +29,7 @@ enum class SecretName(val key: String) {
     TelegramChatId("telegram_chat_id"),
     TelegramTradingBot("telegram_trading_bot"),
     CoinMarketCap("coinmarketcap_api_key"),
+    SportsGameOdds("sportsgameodds_api_key"),
 }
 
 /**

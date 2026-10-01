@@ -379,6 +379,9 @@
     <string name="dial_services_trakt">Trakt client ID</string>
     <string name="dial_services_trakt_hint">Client ID of an app you create at trakt.tv/oauth/applications</string>
     <string name="dial_services_section_markets">Markets and Telegram</string>
+    <string name="dial_services_section_odds">Match odds</string>
+    <string name="dial_services_sgo">SportsGameOdds key</string>
+    <string name="dial_services_sgo_hint">Paste a key from sportsgameodds.com. Live prices turn on for the leagues that key covers. ESPN fractions stay on either way.</string>
     <string name="dial_services_cmc">CoinMarketCap API key</string>
     <string name="dial_services_cmc_hint">API key from pro.coinmarketcap.com</string>
     <string name="dial_services_telegram_bot">Telegram bot token</string>
@@ -514,7 +517,7 @@
     <string name="dial_nav_films">Films</string>
     <string name="dial_nav_series">Series</string>
     <string name="dial_nav_addons">Addons</string>
-    <string name="dial_nav_infinite">Infinite</string>
+    <string name="dial_nav_infinite">Infinity</string>
     <string name="dial_nav_match">Match Centre</string>
     <string name="dial_nav_news">News</string>
     <string name="dial_settings_tab_addons">Addons</string>

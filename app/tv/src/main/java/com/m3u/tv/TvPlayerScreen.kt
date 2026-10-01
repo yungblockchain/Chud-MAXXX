@@ -76,10 +76,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.media3.common.Player
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.tv.material3.Text
 import androidx.media3.ui.compose.PlayerSurface
 import androidx.media3.ui.compose.SURFACE_TYPE_SURFACE_VIEW
@@ -378,20 +379,12 @@ fun TvPlayerScreen(
                     .clipToBounds()
             ) {
                 val screenAspect = maxWidth / maxHeight
-                val surfaceModifier = when {
-                    videoAspect <= 0f || preferences.aspect == DialAspect.Stretch -> Modifier.fillMaxSize()
-                    // Fit: the whole picture, with bars where the shapes differ.
-                    preferences.aspect == DialAspect.Fit -> if (videoAspect > screenAspect) {
-                        Modifier.requiredSize(maxWidth, maxWidth / videoAspect)
-                    } else {
-                        Modifier.requiredSize(maxHeight * videoAspect, maxHeight)
-                    }
-                    // Zoom: fill the screen and crop the overflow.
-                    else -> if (videoAspect > screenAspect) {
-                        Modifier.requiredSize(maxHeight * videoAspect, maxHeight)
-                    } else {
-                        Modifier.requiredSize(maxWidth, maxWidth / videoAspect)
-                    }
+                // Fill the window. A smaller surface leaves a green video-plane
+                // in the gaps on Fire TV. Crop fills those gaps instead.
+                val surfaceModifier = Modifier.fillMaxSize()
+                if (screenAspect > 0f) {
+                    (player as? ExoPlayer)?.videoScalingMode =
+                        C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
                 }
                 PlayerSurface(
                     player = player,

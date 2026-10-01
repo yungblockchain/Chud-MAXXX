@@ -49,6 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -170,7 +171,14 @@ fun App(
         viewModel.releasePlayer()
         surface = TvSurface.Browse
     }
-    val minimizePlayer = { surface = TvSurface.Mini }
+    val minimizePlayer = {
+        surface = TvSurface.Mini
+        // Swapping the full-screen surface for the corner one clears the picture.
+        // Tell the player to keep going instead of sitting on a paused frame.
+        if (isPlaying || playbackState == Player.STATE_BUFFERING || playbackState == Player.STATE_READY) {
+            viewModel.pauseOrContinue(true)
+        }
+    }
     // Browsing, with or without the mini player in the corner.
     val onBrowse = surface == TvSurface.Browse || surface == TvSurface.Mini
 
@@ -418,7 +426,7 @@ fun App(
     )
     BackHandler(enabled = backTarget != TvAppBackTarget.ACTIVITY) {
         when (backTarget) {
-            TvAppBackTarget.PLAYER -> closePlayer()
+            TvAppBackTarget.PLAYER -> if (preferences.backToMini) minimizePlayer() else closePlayer()
             TvAppBackTarget.PROVIDER_SUBSCRIPTION -> viewModel.closeProviderSubscription()
             TvAppBackTarget.EXTENSION_SETTINGS -> viewModel.closeExtensionSettings()
             TvAppBackTarget.ACTIVITY -> Unit
@@ -570,6 +578,7 @@ fun App(
                 TvBrowsePane(
                     modifier = Modifier
                         .padding(start = RAIL_COLLAPSED_WIDTH)
+                        .clipToBounds()
                         .focusRequester(contentFocus)
                         .focusGroup(),
                     destination = destination,
